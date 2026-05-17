@@ -257,6 +257,9 @@ export default function TreePage() {
               {persons.length} {persons.length === 1 ? 'профиль' : persons.length < 5 ? 'профиля' : 'профилей'}
             </span>
           )}
+          <span className="hidden sm:inline text-xs text-stone-300 pl-1">
+            колёсико — зум &nbsp;·&nbsp; тащи — перемещение
+          </span>
         </div>
         <div className="flex items-center gap-3">
           {uniqueGroups.length > 1 && (
@@ -295,11 +298,6 @@ export default function TreePage() {
         </div>
       ) : (
         <div className="flex-1 overflow-hidden relative">
-          {/* Подсказка */}
-          <div className="absolute top-3 left-3 z-10 bg-white/80 backdrop-blur-sm border border-stone-200 rounded-lg px-3 py-1.5 text-xs text-stone-400 pointer-events-none">
-            🖱 Колёсико — зум · Тащи фон — перемещение
-          </div>
-
           {/* Кнопки зума */}
           <div className="absolute top-3 right-3 z-10 flex flex-col gap-1">
             <button onClick={() => setScale(s => Math.min(4, s * 1.2))}
@@ -312,7 +310,7 @@ export default function TreePage() {
             </button>
             <button onClick={resetView} title="Сбросить вид"
               className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-500 hover:bg-stone-50 text-xs shadow-sm flex items-center justify-center">
-              ⌂
+              ↺
             </button>
           </div>
 
