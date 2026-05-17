@@ -26,7 +26,7 @@ export default function LoginPage() {
 
     setLoading(false)
     if (error) {
-      setError(`[${error.status}] ${error.message}`)
+      setError('Не удалось отправить код. Проверьте email и попробуйте снова.')
       return
     }
     setStep('otp')
@@ -106,7 +106,7 @@ export default function LoginPage() {
                   type="text"
                   inputMode="numeric"
                   value={token}
-                  onChange={(e) => setToken(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onChange={(e) => setToken(e.target.value.replace(/\D/g, '').slice(0, 8))}
                   placeholder="123456"
                   required
                   autoComplete="one-time-code"
@@ -121,7 +121,7 @@ export default function LoginPage() {
 
               <button
                 type="submit"
-                disabled={loading || token.length < 6}
+                disabled={loading || token.length < 6 || token.length > 8}
                 className="w-full py-2.5 px-4 bg-stone-800 text-white text-sm font-medium rounded-lg hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
               >
                 {loading ? 'Проверка...' : 'Войти'}
