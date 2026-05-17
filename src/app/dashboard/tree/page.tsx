@@ -260,6 +260,16 @@ export default function TreePage() {
           <span className="hidden sm:inline text-xs text-stone-300 pl-1">
             колёсико — зум &nbsp;·&nbsp; тащи — перемещение
           </span>
+          <span className="hidden md:flex items-center gap-3 pl-2 text-xs text-stone-300">
+            <span className="flex items-center gap-1">
+              <svg width="20" height="6"><path d="M0 3 L20 3" stroke="#c8c4be" strokeWidth="1.5"/></svg>
+              родитель
+            </span>
+            <span className="flex items-center gap-1">
+              <svg width="20" height="6"><path d="M0 3 L20 3" stroke="#c8c4be" strokeWidth="1.5" strokeDasharray="4 3"/></svg>
+              супруги
+            </span>
+          </span>
         </div>
         <div className="flex items-center gap-3">
           {uniqueGroups.length > 1 && (
@@ -421,28 +431,6 @@ export default function TreePage() {
             </g>
           </svg>
 
-          {/* Нижняя легенда */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white border border-stone-200 rounded-xl px-4 py-2.5 flex items-center gap-5 text-xs text-stone-400 shadow-sm pointer-events-none">
-            <span className="flex items-center gap-1.5">
-              <svg width="24" height="8"><path d="M0 4 L24 4" stroke="#c8c4be" strokeWidth="1.5" /></svg>
-              Родитель – ребёнок
-            </span>
-            <span className="flex items-center gap-1.5">
-              <svg width="24" height="8"><path d="M0 4 L24 4" stroke="#c8c4be" strokeWidth="1.5" strokeDasharray="4 3" /></svg>
-              Супруги
-            </span>
-            {uniqueGroups.length > 1 && (
-              <span className="flex items-center gap-1.5">
-                <span className="flex gap-0.5">
-                  {uniqueGroups.slice(0, 4).map(g => (
-                    <span key={g} className="inline-block w-2 h-2 rounded-full"
-                      style={{ background: FAMILY_COLORS[g % FAMILY_COLORS.length].strip }} />
-                  ))}
-                </span>
-                Семейные ветви
-              </span>
-            )}
-          </div>
         </div>
       )}
     </div>
