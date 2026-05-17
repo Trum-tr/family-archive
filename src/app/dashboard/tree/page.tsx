@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -10,6 +10,18 @@ const NODE_H = 168
 const GEN_GAP = 220
 const NODE_GAP = 50
 const PAD = 60
+
+// Цвета для семейных групп (связных компонент)
+const FAMILY_COLORS = [
+  { strip: '#f59e0b', label: 'Семья 1' },
+  { strip: '#3b82f6', label: 'Семья 2' },
+  { strip: '#10b981', label: 'Семья 3' },
+  { strip: '#ec4899', label: 'Семья 4' },
+  { strip: '#8b5cf6', label: 'Семья 5' },
+  { strip: '#ef4444', label: 'Семья 6' },
+  { strip: '#14b8a6', label: 'Семья 7' },
+  { strip: '#f97316', label: 'Семья 8' },
+]
 
 type Person = {
   id: string
@@ -96,6 +108,35 @@ function buildLayout(persons: Person[], rels: Rel[]): NodeData[] {
   return result
 }
 
+/** Union-Find для поиска связных семейных групп */
+function findFamilyGroups(persons: Person[], rels: Rel[]): Record<string, number> {
+  const parent: Record<string, string> = {}
+  persons.forEach(p => { parent[p.id] = p.id })
+
+  function find(x: string): string {
+    if (parent[x] !== x) parent[x] = find(parent[x])
+    return parent[x]
+  }
+  function union(a: string, b: string) {
+    const ra = find(a), rb = find(b)
+    if (ra !== rb) parent[ra] = rb
+  }
+
+  for (const r of rels) {
+    union(r.person1_id, r.person2_id)
+  }
+
+  const groupMap: Record<string, number> = {}
+  let counter = 0
+  const result: Record<string, number> = {}
+  for (const p of persons) {
+    const root = find(p.id)
+    if (groupMap[root] === undefined) groupMap[root] = counter++
+    result[p.id] = groupMap[root]
+  }
+  return result
+}
+
 function bezier(x1: number, y1: number, x2: number, y2: number) {
   const midY = (y1 + y2) / 2
   return `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`
@@ -106,6 +147,14 @@ export default function TreePage() {
   const [rels, setRels] = useState<Rel[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
+
+  // Pan & Zoom
+  const [tx, setTx] = useState(0)
+  const [ty, setTy] = useState(0)
+  const [scale, setScale] = useState(1)
+  const dragging = useRef(false)
+  const dragStart = useRef({ x: 0, y: 0 })
+  const svgRef = useRef<SVGSVGElement>(null)
 
   useEffect(() => {
     async function load() {
@@ -126,12 +175,43 @@ export default function TreePage() {
     load()
   }, [router])
 
+  const onWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault()
+    const factor = e.deltaY < 0 ? 1.12 : 0.9
+    setScale(prev => {
+      const newScale = Math.min(4, Math.max(0.15, prev * factor))
+      const rect = svgRef.current?.getBoundingClientRect()
+      if (rect) {
+        const mx = e.clientX - rect.left
+        const my = e.clientY - rect.top
+        setTx(txPrev => mx - (mx - txPrev) * (newScale / prev))
+        setTy(tyPrev => my - (my - tyPrev) * (newScale / prev))
+      }
+      return newScale
+    })
+  }, [])
+
+  const onMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if ((e.target as Element).closest('[data-node]')) return
+    dragging.current = true
+    dragStart.current = { x: e.clientX - tx, y: e.clientY - ty }
+  }, [tx, ty])
+
+  const onMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (!dragging.current) return
+    setTx(e.clientX - dragStart.current.x)
+    setTy(e.clientY - dragStart.current.y)
+  }, [])
+
+  const onMouseUp = useCallback(() => { dragging.current = false }, [])
+
+  const resetView = () => { setTx(0); setTy(0); setScale(1) }
+
   const nodes = buildLayout(persons, rels)
   const nodeIndex: Record<string, NodeData> = {}
   nodes.forEach(n => { nodeIndex[n.id] = n })
-
-  const svgW = nodes.length > 0 ? Math.max(...nodes.map(n => n.x + NODE_W)) + PAD : 600
-  const svgH = nodes.length > 0 ? Math.max(...nodes.map(n => n.y + NODE_H)) + PAD : 400
+  const familyGroups = findFamilyGroups(persons, rels)
+  const uniqueGroups = [...new Set(Object.values(familyGroups))].sort()
 
   type Edge = { d: string; dashed: boolean }
   const edges: Edge[] = []
@@ -151,7 +231,8 @@ export default function TreePage() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-50 flex flex-col">
+    <div className="min-h-screen bg-stone-50 flex flex-col select-none">
+      {/* Шапка */}
       <div className="flex-shrink-0 flex items-center justify-between px-5 py-3.5 bg-white border-b border-stone-200">
         <div className="flex items-center gap-3">
           <Link href="/dashboard" className="text-stone-400 text-sm hover:text-stone-600 transition-colors">
@@ -159,13 +240,34 @@ export default function TreePage() {
           </Link>
           <span className="text-stone-200">·</span>
           <h1 className="text-sm font-medium text-stone-800">Семейное дерево</h1>
+          {persons.length > 0 && (
+            <span className="text-xs text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full">
+              {persons.length} {persons.length === 1 ? 'профиль' : persons.length < 5 ? 'профиля' : 'профилей'}
+            </span>
+          )}
         </div>
-        <Link
-          href="/dashboard/persons"
-          className="text-xs text-stone-500 hover:text-stone-800 transition-colors border border-stone-200 rounded-lg px-3 py-1.5"
-        >
-          Управление профилями
-        </Link>
+        <div className="flex items-center gap-3">
+          {uniqueGroups.length > 1 && (
+            <div className="hidden sm:flex items-center gap-2">
+              {uniqueGroups.slice(0, 5).map(g => (
+                <span key={g} className="flex items-center gap-1 text-xs text-stone-500">
+                  <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ background: FAMILY_COLORS[g % FAMILY_COLORS.length].strip }} />
+                  {FAMILY_COLORS[g % FAMILY_COLORS.length].label}
+                </span>
+              ))}
+              {uniqueGroups.length > 5 && (
+                <span className="text-xs text-stone-400">+{uniqueGroups.length - 5}</span>
+              )}
+            </div>
+          )}
+          <Link
+            href="/dashboard/persons"
+            className="text-xs text-stone-500 hover:text-stone-800 transition-colors border border-stone-200 rounded-lg px-3 py-1.5"
+          >
+            Управление профилями
+          </Link>
+        </div>
       </div>
 
       {loading ? (
@@ -180,88 +282,131 @@ export default function TreePage() {
           </Link>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto">
-          <svg width={svgW} height={svgH} className="block">
+        <div className="flex-1 overflow-hidden relative">
+          {/* Подсказка */}
+          <div className="absolute top-3 left-3 z-10 bg-white/80 backdrop-blur-sm border border-stone-200 rounded-lg px-3 py-1.5 text-xs text-stone-400 pointer-events-none">
+            🖱 Колёсико — зум · Тащи фон — перемещение
+          </div>
+
+          {/* Кнопки зума */}
+          <div className="absolute top-3 right-3 z-10 flex flex-col gap-1">
+            <button onClick={() => setScale(s => Math.min(4, s * 1.2))}
+              className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 text-lg font-light shadow-sm flex items-center justify-center">
+              +
+            </button>
+            <button onClick={() => setScale(s => Math.max(0.15, s * 0.8))}
+              className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 text-lg font-light shadow-sm flex items-center justify-center">
+              −
+            </button>
+            <button onClick={resetView} title="Сбросить вид"
+              className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-500 hover:bg-stone-50 text-xs shadow-sm flex items-center justify-center">
+              ⌂
+            </button>
+          </div>
+
+          <svg
+            ref={svgRef}
+            width="100%"
+            height="100%"
+            style={{ cursor: 'grab', touchAction: 'none' }}
+            onWheel={onWheel}
+            onMouseDown={onMouseDown}
+            onMouseMove={onMouseMove}
+            onMouseUp={onMouseUp}
+            onMouseLeave={onMouseUp}
+          >
             <defs>
               <filter id="card-shadow" x="-20%" y="-20%" width="140%" height="140%">
                 <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#00000018" />
               </filter>
             </defs>
 
-            {edges.map((e, i) => (
-              <path key={i} d={e.d} fill="none" stroke="#c8c4be" strokeWidth={1.5}
-                strokeDasharray={e.dashed ? '6 4' : undefined} />
-            ))}
+            <g transform={`translate(${tx}, ${ty}) scale(${scale})`}>
+              {edges.map((e, i) => (
+                <path key={i} d={e.d} fill="none" stroke="#c8c4be" strokeWidth={1.5}
+                  strokeDasharray={e.dashed ? '6 4' : undefined} />
+              ))}
 
-            {nodes.map(node => {
-              const { x, y } = node
-              const lastName  = node.last_name  || ''
-              const firstName = node.first_name || ''
-              const birth = node.birth_date ? new Date(node.birth_date).getFullYear() : null
-              const death = node.death_date ? new Date(node.death_date).getFullYear() : null
-              const years = (birth || death) ? `${birth ?? '?'} – ${death ?? '...'}` : ''
+              {nodes.map(node => {
+                const { x, y } = node
+                const lastName  = node.last_name  || ''
+                const firstName = node.first_name || ''
+                const birth = node.birth_date ? new Date(node.birth_date).getFullYear() : null
+                const death = node.death_date ? new Date(node.death_date).getFullYear() : null
+                const years = (birth || death) ? `${birth ?? '?'} – ${death ?? '...'}` : ''
+                const groupIdx = familyGroups[node.id] ?? 0
+                const color = FAMILY_COLORS[groupIdx % FAMILY_COLORS.length].strip
 
-              return (
-                <g key={node.id} onClick={() => router.push(`/dashboard/persons/${node.id}`)}
-                  style={{ cursor: 'pointer' }}>
-                  <rect x={x} y={y} width={NODE_W} height={NODE_H} rx={12}
-                    fill="white" stroke="#e7e5e4" strokeWidth={1} filter="url(#card-shadow)" />
+                return (
+                  <g key={node.id} data-node="true"
+                    onClick={() => router.push(`/dashboard/persons/${node.id}`)}
+                    style={{ cursor: 'pointer' }}>
 
-                  {/* Аватар */}
-                  <circle cx={x + NODE_W / 2} cy={y + 50} r={34} fill="#f5f5f4" />
-                  {node.main_photo_url
-                    ? (
+                    {/* Фон карточки */}
+                    <rect x={x} y={y} width={NODE_W} height={NODE_H} rx={12}
+                      fill="white" stroke="#e7e5e4" strokeWidth={1} filter="url(#card-shadow)" />
+
+                    {/* Цветная полоска рода */}
+                    <clipPath id={`clip-top-${node.id}`}>
+                      <rect x={x} y={y} width={NODE_W} height={12} rx={12} />
+                    </clipPath>
+                    <rect x={x} y={y} width={NODE_W} height={8} fill={color}
+                      clipPath={`url(#clip-top-${node.id})`} />
+
+                    {/* Аватар */}
+                    <circle cx={x + NODE_W / 2} cy={y + 54} r={34} fill="#f5f5f4" />
+                    {node.main_photo_url ? (
                       <>
                         <defs>
                           <clipPath id={`cp-${node.id}`}>
-                            <circle cx={x + NODE_W / 2} cy={y + 50} r={34} />
+                            <circle cx={x + NODE_W / 2} cy={y + 54} r={34} />
                           </clipPath>
                         </defs>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <foreignObject x={x + NODE_W / 2 - 34} y={y + 16} width={68} height={68}
+                        <foreignObject x={x + NODE_W / 2 - 34} y={y + 20} width={68} height={68}
                           clipPath={`url(#cp-${node.id})`}>
                           <img src={node.main_photo_url} alt=""
                             style={{ width: 68, height: 68, objectFit: 'cover', borderRadius: '50%' }} />
                         </foreignObject>
                       </>
-                    )
-                    : (
-                      <text x={x + NODE_W / 2} y={y + 57} textAnchor="middle" fontSize={26} fill="#d6d3d1">👤</text>
-                    )
-                  }
+                    ) : (
+                      <text x={x + NODE_W / 2} y={y + 61} textAnchor="middle" fontSize={26} fill="#d6d3d1">👤</text>
+                    )}
 
-                  {/* Фамилия */}
-                  <text x={x + NODE_W / 2} y={y + 102} textAnchor="middle" fontSize={11} fontWeight="600"
-                    fill="#292524" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-                    {lastName.length > 14 ? lastName.slice(0, 13) + '…' : lastName}
-                  </text>
-
-                  {/* Имя */}
-                  <text x={x + NODE_W / 2} y={y + 118} textAnchor="middle" fontSize={11}
-                    fill="#44403c" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-                    {firstName.length > 14 ? firstName.slice(0, 13) + '…' : firstName}
-                  </text>
-
-                  {/* Годы */}
-                  {years && (
-                    <text x={x + NODE_W / 2} y={y + 136} textAnchor="middle" fontSize={10}
-                      fill="#a8a29e" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-                      {years}
+                    {/* Фамилия */}
+                    <text x={x + NODE_W / 2} y={y + 106} textAnchor="middle" fontSize={11} fontWeight="600"
+                      fill="#292524" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+                      {lastName.length > 14 ? lastName.slice(0, 13) + '…' : lastName}
                     </text>
-                  )}
 
-                  {/* Подсказка */}
-                  <rect x={x + 12} y={y + NODE_H - 28} width={NODE_W - 24} height={18} rx={6} fill="#f5f5f4" />
-                  <text x={x + NODE_W / 2} y={y + NODE_H - 15} textAnchor="middle" fontSize={9}
-                    fill="#a8a29e" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-                    Открыть профиль →
-                  </text>
-                </g>
-              )
-            })}
+                    {/* Имя */}
+                    <text x={x + NODE_W / 2} y={y + 122} textAnchor="middle" fontSize={11}
+                      fill="#44403c" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+                      {firstName.length > 14 ? firstName.slice(0, 13) + '…' : firstName}
+                    </text>
+
+                    {/* Годы */}
+                    {years && (
+                      <text x={x + NODE_W / 2} y={y + 140} textAnchor="middle" fontSize={10}
+                        fill="#a8a29e" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+                        {years}
+                      </text>
+                    )}
+
+                    {/* Кнопка открыть */}
+                    <rect x={x + 12} y={y + NODE_H - 28} width={NODE_W - 24} height={18} rx={6} fill="#f5f5f4" />
+                    <text x={x + NODE_W / 2} y={y + NODE_H - 15} textAnchor="middle" fontSize={9}
+                      fill="#a8a29e" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+                      Открыть профиль →
+                    </text>
+                  </g>
+                )
+              })}
+            </g>
           </svg>
 
-          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-white border border-stone-200 rounded-xl px-4 py-2.5 flex items-center gap-5 text-xs text-stone-400 shadow-sm pointer-events-none">
+          {/* Нижняя легенда */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white border border-stone-200 rounded-xl px-4 py-2.5 flex items-center gap-5 text-xs text-stone-400 shadow-sm pointer-events-none">
             <span className="flex items-center gap-1.5">
               <svg width="24" height="8"><path d="M0 4 L24 4" stroke="#c8c4be" strokeWidth="1.5" /></svg>
               Родитель – ребёнок
@@ -270,6 +415,17 @@ export default function TreePage() {
               <svg width="24" height="8"><path d="M0 4 L24 4" stroke="#c8c4be" strokeWidth="1.5" strokeDasharray="4 3" /></svg>
               Супруги
             </span>
+            {uniqueGroups.length > 1 && (
+              <span className="flex items-center gap-1.5">
+                <span className="flex gap-0.5">
+                  {uniqueGroups.slice(0, 4).map(g => (
+                    <span key={g} className="inline-block w-2 h-2 rounded-full"
+                      style={{ background: FAMILY_COLORS[g % FAMILY_COLORS.length].strip }} />
+                  ))}
+                </span>
+                Семейные ветви
+              </span>
+            )}
           </div>
         </div>
       )}
