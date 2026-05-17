@@ -26,7 +26,7 @@ export default function LoginPage() {
 
     setLoading(false)
     if (error) {
-      setError('Не удалось отправить код. Проверьте email и попробуйте снова.')
+      setError(`[${error.status}] ${error.message}`)
       return
     }
     setStep('otp')
