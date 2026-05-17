@@ -21,6 +21,163 @@ type Person = {
   main_photo_url: string | null
 }
 
+type Rel = {
+  id: string
+  person1_id: string
+  person2_id: string
+  relation_type: string
+}
+
+const REL_LABELS: Record<string, string> = {
+  parent:  'Родитель',
+  child:   'Ребёнок',
+  spouse:  'Супруг(а)',
+  sibling: 'Брат/Сестра',
+  adopted: 'Усыновлён',
+}
+
+function RelativesSection({ personId }: { personId: string }) {
+  const [rels, setRels]         = useState<Rel[]>([])
+  const [allPersons, setAll]    = useState<Person[]>([])
+  const [adding, setAdding]     = useState(false)
+  const [selId, setSelId]       = useState('')
+  const [relType, setRelType]   = useState('parent')
+  const [saving, setSaving]     = useState(false)
+
+  const loadRels = useCallback(async () => {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const [{ data: r }, { data: p }] = await Promise.all([
+      supabase.from('relationships').select('*')
+        .or(`person1_id.eq.${personId},person2_id.eq.${personId}`),
+      supabase.from('persons').select('id,first_name,last_name').eq('created_by', user.id),
+    ])
+    setRels(r ?? [])
+    setAll((p ?? []).filter(pp => pp.id !== personId))
+  }, [personId])
+
+  useEffect(() => { loadRels() }, [loadRels])
+
+  async function addRel() {
+    if (!selId) return
+    setSaving(true)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setSaving(false); return }
+    await supabase.from('relationships').insert({
+      person1_id: personId,
+      person2_id: selId,
+      relation_type: relType,
+      created_by: user.id,
+    })
+    setAdding(false); setSelId(''); setRelType('parent')
+    setSaving(false)
+    loadRels()
+  }
+
+  async function removeRel(relId: string) {
+    const supabase = createClient()
+    await supabase.from('relationships').delete().eq('id', relId)
+    loadRels()
+  }
+
+  const getName = (id: string) => {
+    const p = allPersons.find(pp => pp.id === id)
+    if (!p) return 'Неизвестно'
+    return [p.last_name, p.first_name].filter(Boolean).join(' ') || 'Без имени'
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-stone-200 p-5 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-medium text-stone-500 uppercase tracking-wider">Родственники</p>
+        {!adding && (
+          <button
+            onClick={() => setAdding(true)}
+            className="text-xs text-stone-600 border border-stone-200 rounded-lg px-2.5 py-1 hover:bg-stone-50 transition-colors"
+          >
+            + Добавить
+          </button>
+        )}
+      </div>
+
+      {/* Форма добавления */}
+      {adding && (
+        <div className="mb-3 p-3 bg-stone-50 rounded-lg space-y-2">
+          <select
+            value={selId}
+            onChange={e => setSelId(e.target.value)}
+            className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+          >
+            <option value="">Выберите человека...</option>
+            {allPersons.map(p => (
+              <option key={p.id} value={p.id}>
+                {[p.last_name, p.first_name].filter(Boolean).join(' ') || 'Без имени'}
+              </option>
+            ))}
+          </select>
+          <select
+            value={relType}
+            onChange={e => setRelType(e.target.value)}
+            className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+          >
+            {Object.entries(REL_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+          <div className="flex gap-2">
+            <button
+              onClick={addRel}
+              disabled={saving || !selId}
+              className="flex-1 py-2 bg-stone-800 text-white text-sm rounded-lg hover:bg-stone-700 disabled:opacity-50 transition-colors"
+            >
+              {saving ? 'Сохраняю...' : 'Сохранить'}
+            </button>
+            <button
+              onClick={() => { setAdding(false); setSelId(''); setRelType('parent') }}
+              className="flex-1 py-2 border border-stone-200 text-stone-600 text-sm rounded-lg hover:bg-stone-50 transition-colors"
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Список родственников */}
+      {rels.length === 0 && !adding ? (
+        <p className="text-sm text-stone-300 italic">Связи не добавлены</p>
+      ) : (
+        <div className="space-y-2">
+          {rels.map(r => {
+            const otherId = r.person1_id === personId ? r.person2_id : r.person1_id
+            return (
+              <div key={r.id} className="flex items-center justify-between py-1.5">
+                <div>
+                  <span className="text-xs text-stone-400 mr-2">{REL_LABELS[r.relation_type] ?? r.relation_type}</span>
+                  <Link
+                    href={`/dashboard/persons/${otherId}`}
+                    className="text-sm text-stone-700 hover:text-stone-900 hover:underline"
+                  >
+                    {getName(otherId)}
+                  </Link>
+                </div>
+                <button
+                  onClick={() => removeRel(r.id)}
+                  className="text-stone-300 hover:text-red-400 transition-colors text-lg leading-none"
+                  title="Удалить связь"
+                >
+                  ×
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function PersonDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -251,6 +408,9 @@ export default function PersonDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Родственники */}
+        {!editing && <RelativesSection personId={id} />}
 
         {/* QR-код */}
         {!editing && (

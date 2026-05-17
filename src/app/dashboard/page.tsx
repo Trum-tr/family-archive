@@ -57,12 +57,18 @@ export default async function DashboardPage() {
             <p className="text-xs text-stone-800 font-medium pt-1">Открыть →</p>
           </Link>
 
-          {/* Родословное дерево — в разработке */}
-          <div className="bg-white rounded-xl border border-stone-100 p-5 space-y-2 opacity-60">
-            <h3 className="font-medium text-stone-500">Родословное дерево</h3>
+          {/* Родословное дерево — активно */}
+          <Link
+            href="/dashboard/tree"
+            className="bg-white rounded-xl border border-stone-200 p-5 space-y-2 hover:border-stone-300 hover:shadow-sm transition-all group"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium text-stone-700 group-hover:text-stone-900">Семейное дерево</h3>
+              <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full">Новое</span>
+            </div>
             <p className="text-sm text-stone-400">Визуальная карта семейных связей</p>
-            <p className="text-xs text-stone-300 pt-1">Этап 4</p>
-          </div>
+            <p className="text-xs text-stone-800 font-medium pt-1">Открыть →</p>
+          </Link>
 
           {/* Карта захоронений — в разработке */}
           <div className="bg-white rounded-xl border border-stone-100 p-5 space-y-2 opacity-60">
