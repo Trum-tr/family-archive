@@ -206,9 +206,36 @@ export default function TreePage() {
 
   const onMouseUp = useCallback(() => { dragging.current = false }, [])
 
-  const resetView = () => { setTx(0); setTy(0); setScale(1) }
-
   const nodes = buildLayout(persons, rels)
+
+  // Автоподгонка: вписать все карточки в экран
+  const fitView = useCallback(() => {
+    if (nodes.length === 0 || !svgRef.current) return
+    const svgRect = svgRef.current.getBoundingClientRect()
+    const minX = Math.min(...nodes.map(n => n.x))
+    const maxX = Math.max(...nodes.map(n => n.x + NODE_W))
+    const minY = Math.min(...nodes.map(n => n.y))
+    const maxY = Math.max(...nodes.map(n => n.y + NODE_H))
+    const treeW = maxX - minX
+    const treeH = maxY - minY
+    const pad = 40
+    const newScale = Math.min(1, (svgRect.width - pad * 2) / treeW, (svgRect.height - pad * 2) / treeH)
+    setScale(newScale)
+    setTx((svgRect.width - treeW * newScale) / 2 - minX * newScale)
+    setTy((svgRect.height - treeH * newScale) / 2 - minY * newScale)
+  }, [nodes])
+
+  // Запустить fitView после загрузки данных
+  const fittedRef = useRef(false)
+  useEffect(() => {
+    if (nodes.length > 0 && !fittedRef.current && svgRef.current) {
+      fittedRef.current = true
+      // небольшая задержка чтобы SVG успел отрендериться
+      setTimeout(fitView, 50)
+    }
+  }, [nodes, fitView])
+
+  const resetView = () => fitView()
   const nodeIndex: Record<string, NodeData> = {}
   nodes.forEach(n => { nodeIndex[n.id] = n })
   const familyGroups = findFamilyGroups(persons, rels)
@@ -257,19 +284,6 @@ export default function TreePage() {
               {persons.length} {persons.length === 1 ? 'профиль' : persons.length < 5 ? 'профиля' : 'профилей'}
             </span>
           )}
-          <span className="hidden sm:inline text-xs text-stone-300 pl-1">
-            колёсико — зум &nbsp;·&nbsp; тащи — перемещение
-          </span>
-          <span className="hidden md:flex items-center gap-3 pl-2 text-xs text-stone-300">
-            <span className="flex items-center gap-1">
-              <svg width="20" height="6"><path d="M0 3 L20 3" stroke="#c8c4be" strokeWidth="1.5"/></svg>
-              родитель
-            </span>
-            <span className="flex items-center gap-1">
-              <svg width="20" height="6"><path d="M0 3 L20 3" stroke="#c8c4be" strokeWidth="1.5" strokeDasharray="4 3"/></svg>
-              супруги
-            </span>
-          </span>
         </div>
         <div className="flex items-center gap-3">
           {uniqueGroups.length > 1 && (
@@ -381,12 +395,15 @@ export default function TreePage() {
                     {/* Аватар фон */}
                     <circle cx={x + NODE_W / 2} cy={y + 54} r={34} fill="#e7e5e4" />
                     {node.main_photo_url ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <foreignObject x={x + NODE_W / 2 - 34} y={y + 20} width={68} height={68}
-                        clipPath={`url(#cp-${node.id})`}>
-                        <img src={node.main_photo_url} alt=""
-                          style={{ width: 68, height: 68, objectFit: 'cover', borderRadius: '50%' }} />
-                      </foreignObject>
+                      <image
+                        href={node.main_photo_url}
+                        x={x + NODE_W / 2 - 34}
+                        y={y + 20}
+                        width={68}
+                        height={68}
+                        clipPath={`url(#cp-${node.id})`}
+                        preserveAspectRatio="xMidYMid slice"
+                      />
                     ) : (
                       /* SVG-силуэт: тёмный для контраста с фоном */
                       <g>
