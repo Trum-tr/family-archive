@@ -48,6 +48,25 @@ export default async function PublicProfilePage({ params }: Props) {
     .eq('person_id', id)
     .order('created_at', { ascending: true })
 
+  // Связи с другими профилями
+  const { data: relationships } = await supabase
+    .from('relationships')
+    .select('*')
+    .or(`person1_id.eq.${id},person2_id.eq.${id}`)
+
+  // ID всех связанных людей
+  const relatedIds = (relationships ?? []).map(r =>
+    r.person1_id === id ? r.person2_id : r.person1_id
+  )
+
+  // Загрузить профили связанных
+  const { data: relatedPersons } = relatedIds.length > 0
+    ? await supabase
+        .from('persons')
+        .select('id, first_name, last_name, middle_name, birth_date, death_date, main_photo_url')
+        .in('id', relatedIds)
+    : { data: [] }
+
   const fullName = [person.last_name, person.first_name, person.middle_name].filter(Boolean).join(' ') || 'Неизвестный'
 
   const birthYear = person.birth_date ? new Date(person.birth_date).getFullYear() : null
@@ -135,6 +154,53 @@ export default async function PublicProfilePage({ params }: Props) {
                 🗺 Открыть на карте
               </a>
             )}
+          </div>
+        )}
+
+        {/* Родственники */}
+        {relationships && relationships.length > 0 && (
+          <div className="bg-white rounded-xl border border-stone-200 p-5">
+            <p className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-4">Родственники</p>
+            <div className="space-y-3">
+              {relationships.map((r: { id: string; person1_id: string; person2_id: string; relation_type: string }) => {
+                const otherId = r.person1_id === id ? r.person2_id : r.person1_id
+                const rel = (relatedPersons ?? []).find((p: { id: string }) => p.id === otherId) as {
+                  id: string; first_name: string | null; last_name: string | null; middle_name: string | null;
+                  birth_date: string | null; death_date: string | null; main_photo_url: string | null
+                } | undefined
+                if (!rel) return null
+                const relName = [rel.last_name, rel.first_name, rel.middle_name].filter(Boolean).join(' ') || 'Без имени'
+                const relBirth = rel.birth_date ? new Date(rel.birth_date).getFullYear() : null
+                const relDeath = rel.death_date ? new Date(rel.death_date).getFullYear() : null
+                const REL_LABELS: Record<string, string> = {
+                  parent: 'Родитель', child: 'Ребёнок', spouse: 'Супруг(а)',
+                  sibling: 'Брат/Сестра', adopted: 'Усыновлён'
+                }
+                return (
+                  <Link
+                    key={r.id}
+                    href={`/p/${otherId}`}
+                    className="flex items-center gap-3 hover:bg-stone-50 rounded-lg p-2 -mx-2 transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-stone-100 flex-shrink-0 overflow-hidden">
+                      {rel.main_photo_url ? (
+                        <img src={rel.main_photo_url} alt={relName} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-stone-300 text-lg">👤</div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-stone-800 truncate">{relName}</p>
+                      <p className="text-xs text-stone-400">
+                        {REL_LABELS[r.relation_type] ?? r.relation_type}
+                        {(relBirth || relDeath) && ` · ${relBirth ?? '?'} – ${relDeath ?? '...'}`}
+                      </p>
+                    </div>
+                    <span className="text-stone-300">›</span>
+                  </Link>
+                )
+              })}
+            </div>
           </div>
         )}
 
