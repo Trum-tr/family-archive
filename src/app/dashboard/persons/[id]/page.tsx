@@ -28,6 +28,12 @@ type Rel = {
   relation_type: string
 }
 
+type SimplePerson = {
+  id: string
+  first_name: string | null
+  last_name: string | null
+}
+
 const REL_LABELS: Record<string, string> = {
   parent:  'Родитель',
   child:   'Ребёнок',
@@ -38,7 +44,7 @@ const REL_LABELS: Record<string, string> = {
 
 function RelativesSection({ personId }: { personId: string }) {
   const [rels, setRels]         = useState<Rel[]>([])
-  const [allPersons, setAll]    = useState<Person[]>([])
+  const [allPersons, setAll]    = useState<SimplePerson[]>([])
   const [adding, setAdding]     = useState(false)
   const [selId, setSelId]       = useState('')
   const [relType, setRelType]   = useState('parent')
@@ -54,7 +60,7 @@ function RelativesSection({ personId }: { personId: string }) {
       supabase.from('persons').select('id,first_name,last_name').eq('created_by', user.id),
     ])
     setRels(r ?? [])
-    setAll((p ?? []).filter(pp => pp.id !== personId))
+    setAll(((p ?? []) as SimplePerson[]).filter(pp => pp.id !== personId))
   }, [personId])
 
   useEffect(() => { loadRels() }, [loadRels])
