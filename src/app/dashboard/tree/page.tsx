@@ -325,22 +325,6 @@ export default function TreePage() {
       ) : (
         <div className="flex-1 overflow-hidden relative">
 
-          {/* Кнопки зума */}
-          <div className="absolute top-3 right-3 z-10 flex flex-col gap-1">
-            <button onClick={() => zoomBtn(1.25)}
-              className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 text-lg font-light shadow-sm flex items-center justify-center">
-              +
-            </button>
-            <button onClick={() => zoomBtn(0.8)}
-              className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 text-lg font-light shadow-sm flex items-center justify-center">
-              −
-            </button>
-            <button onClick={fitView} title="Вписать в экран"
-              className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-500 hover:bg-stone-50 text-xs shadow-sm flex items-center justify-center">
-              ↺
-            </button>
-          </div>
-
           <svg
             ref={svgRef}
             width="100%"
@@ -452,6 +436,22 @@ export default function TreePage() {
               })}
             </g>
           </svg>
+
+          {/* Кнопки зума — после SVG в DOM чтобы рендерились поверх него */}
+          <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 pointer-events-auto">
+            <button onClick={() => zoomBtn(1.25)}
+              className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 text-lg font-light shadow-sm flex items-center justify-center">
+              +
+            </button>
+            <button onClick={() => zoomBtn(0.8)}
+              className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 text-lg font-light shadow-sm flex items-center justify-center">
+              −
+            </button>
+            <button onClick={fitView} title="Вписать в экран"
+              className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-500 hover:bg-stone-50 text-xs shadow-sm flex items-center justify-center">
+              ↺
+            </button>
+          </div>
         </div>
       )}
     </div>
