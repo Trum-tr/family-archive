@@ -814,7 +814,17 @@ export default function PersonDetailPage() {
         {/* QR-код */}
         {!editing && (
           <div className="bg-white rounded-xl border border-stone-200 p-5">
-            <p className="text-xs font-medium text-stone-500 uppercase tracking-wider mb-4">QR-код для надгробия</p>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs font-medium text-stone-500 uppercase tracking-wider">QR-код для надгробия</p>
+              <a
+                href={`/dashboard/persons/${id}/print`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-medium rounded-lg transition-colors"
+              >
+                🖨 Скачать PDF
+              </a>
+            </div>
             <QRCode url={publicUrl} name={fullName} />
           </div>
         )}
