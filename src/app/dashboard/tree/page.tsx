@@ -207,19 +207,25 @@ export default function TreePage() {
     })
   }, [])
 
-  // ── Зум кнопками (вокруг центра экрана) ───────────────────────
+  // ── Зум кнопками — масштаб + центрирование, контент не уходит ─
   const zoomBtn = useCallback((factor: number) => {
-    const rect = svgRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const cx = rect.width / 2
-    const cy = rect.height / 2
+    if (!svgRef.current || nodes.length === 0) return
+    const rect = svgRef.current.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return
+    const minX = Math.min(...nodes.map(n => n.x))
+    const maxX = Math.max(...nodes.map(n => n.x + NODE_W))
+    const minY = Math.min(...nodes.map(n => n.y))
+    const maxY = Math.max(...nodes.map(n => n.y + NODE_H))
+    const treeW = maxX - minX
+    const treeH = maxY - minY
     setScale(prev => {
-      const next = Math.min(4, Math.max(0.15, prev * factor))
-      setTx(t => cx - (cx - t) * (next / prev))
-      setTy(t => cy - (cy - t) * (next / prev))
+      const next = Math.min(3, Math.max(0.1, prev * factor))
+      // всегда центрируем при нажатии кнопок — контент не убегает
+      setTx((rect.width  - treeW * next) / 2 - minX * next)
+      setTy((rect.height - treeH * next) / 2 - minY * next)
       return next
     })
-  }, [])
+  }, [nodes])
 
   // ── Перемещение мышью ──────────────────────────────────────────
   const onMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
