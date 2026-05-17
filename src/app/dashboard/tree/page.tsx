@@ -270,7 +270,7 @@ export default function TreePage() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-50 flex flex-col select-none">
+    <div className="h-screen bg-stone-50 flex flex-col select-none overflow-hidden">
       {/* Шапка */}
       <div className="flex-shrink-0 flex items-center justify-between px-5 py-3.5 bg-white border-b border-stone-200">
         <div className="flex items-center gap-3">
