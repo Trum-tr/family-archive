@@ -29,7 +29,11 @@ export default function PersonDetailPage() {
   const [loading, setLoading] = useState(false)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
-  const [form, setForm] = useState<Omit<Person, 'id' | 'main_photo_url' | 'burial_lat' | 'burial_lng'> & { burial_lat: string; burial_lng: string }>({
+  const [form, setForm] = useState<{
+    last_name: string; first_name: string; middle_name: string
+    birth_date: string; death_date: string; biography: string
+    burial_lat: string; burial_lng: string; burial_place: string
+  }>({
     last_name: '', first_name: '', middle_name: '',
     birth_date: '', death_date: '', biography: '',
     burial_lat: '', burial_lng: '', burial_place: '',
@@ -151,7 +155,7 @@ export default function PersonDetailPage() {
                 <input
                   key={key}
                   type="text"
-                  value={form[key as keyof typeof form]}
+                  value={form[key as keyof typeof form] ?? ''}
                   onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
                   placeholder={placeholder}
                   className="w-full text-center border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
