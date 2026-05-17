@@ -7,6 +7,153 @@ import { createClient } from '@/lib/supabase/client'
 import { uploadPhoto } from '@/lib/supabase/storage'
 import QRCode from '@/components/QRCode'
 
+// ─── Тип фото ─────────────────────────────────────────────────
+type Photo = {
+  id: string
+  person_id: string
+  url: string
+  caption: string | null
+  created_at: string
+}
+
+// ─── Компонент галереи ─────────────────────────────────────────
+function GallerySection({ personId }: { personId: string }) {
+  const [photos, setPhotos] = useState<Photo[]>([])
+  const [lightbox, setLightbox] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [caption, setCaption] = useState('')
+  const [preview, setPreview] = useState<{ file: File; url: string } | null>(null)
+
+  const load = useCallback(async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('photos')
+      .select('*')
+      .eq('person_id', personId)
+      .order('created_at', { ascending: true })
+    setPhotos((data as Photo[]) || [])
+  }, [personId])
+
+  useEffect(() => { load() }, [load])
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPreview({ file, url: URL.createObjectURL(file) })
+  }
+
+  async function handleUpload() {
+    if (!preview) return
+    setUploading(true)
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      const ext = preview.file.name.split('.').pop()
+      const path = `${user?.id ?? 'anon'}/${personId}/${Date.now()}.${ext}`
+      const { error } = await supabase.storage.from('photos').upload(path, preview.file, { upsert: true })
+      if (error) throw error
+      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path)
+      await supabase.from('photos').insert({
+        person_id: personId,
+        url: urlData.publicUrl,
+        caption: caption || null,
+      })
+      setPreview(null)
+      setCaption('')
+      load()
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function handleDelete(photo: Photo) {
+    const supabase = createClient()
+    await supabase.from('photos').delete().eq('id', photo.id)
+    // Удаляем из Storage
+    const path = photo.url.split('/photos/')[1]
+    if (path) await supabase.storage.from('photos').remove([path])
+    load()
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-stone-200 p-5 mb-4">
+      <p className="text-xs font-medium text-stone-500 uppercase tracking-wider mb-4">Фотогалерея</p>
+
+      {/* Сетка фото */}
+      {photos.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {photos.map(photo => (
+            <div key={photo.id} className="relative group aspect-square rounded-lg overflow-hidden bg-stone-100">
+              <img
+                src={photo.url}
+                alt={photo.caption || ''}
+                className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
+                onClick={() => setLightbox(photo.url)}
+              />
+              {photo.caption && (
+                <div className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-xs px-2 py-1 truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                  {photo.caption}
+                </div>
+              )}
+              <button
+                onClick={() => handleDelete(photo)}
+                className="absolute top-1 right-1 w-6 h-6 bg-black/50 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 flex items-center justify-center"
+              >×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Форма загрузки */}
+      {preview ? (
+        <div className="space-y-3">
+          <div className="relative aspect-video rounded-lg overflow-hidden bg-stone-100">
+            <img src={preview.url} alt="" className="w-full h-full object-contain" />
+          </div>
+          <input
+            type="text"
+            value={caption}
+            onChange={e => setCaption(e.target.value)}
+            placeholder="Подпись (необязательно)"
+            className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleUpload}
+              disabled={uploading}
+              className="flex-1 py-2 bg-stone-800 text-white text-sm rounded-lg hover:bg-stone-700 disabled:opacity-50 transition-colors"
+            >
+              {uploading ? 'Загружаю...' : 'Загрузить'}
+            </button>
+            <button
+              onClick={() => { setPreview(null); setCaption('') }}
+              className="flex-1 py-2 border border-stone-200 text-stone-600 text-sm rounded-lg hover:bg-stone-50 transition-colors"
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      ) : (
+        <label className="flex items-center justify-center gap-2 w-full border-2 border-dashed border-stone-200 rounded-lg py-4 text-sm text-stone-400 hover:border-stone-300 hover:text-stone-500 transition-colors cursor-pointer">
+          <span>+ Добавить фото</span>
+          <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+        </label>
+      )}
+
+      {/* Лайтбокс */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <img src={lightbox} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
+          <button className="absolute top-4 right-4 text-white text-3xl leading-none">×</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Типы медиа ───────────────────────────────────────────────
 type MediaItem = {
   id: string
@@ -637,6 +784,9 @@ export default function PersonDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Галерея */}
+        {!editing && <GallerySection personId={id} />}
 
         {/* Медиа */}
         {!editing && <MediaSection personId={id} />}

@@ -42,6 +42,12 @@ export default async function PublicProfilePage({ params }: Props) {
     .eq('person_id', id)
     .order('created_at', { ascending: true })
 
+  const { data: galleryPhotos } = await supabase
+    .from('photos')
+    .select('*')
+    .eq('person_id', id)
+    .order('created_at', { ascending: true })
+
   const fullName = [person.last_name, person.first_name, person.middle_name].filter(Boolean).join(' ') || 'Неизвестный'
 
   const birthYear = person.birth_date ? new Date(person.birth_date).getFullYear() : null
@@ -129,6 +135,24 @@ export default async function PublicProfilePage({ params }: Props) {
                 🗺 Открыть на карте
               </a>
             )}
+          </div>
+        )}
+
+        {/* Фотогалерея */}
+        {galleryPhotos && galleryPhotos.length > 0 && (
+          <div className="bg-white rounded-xl border border-stone-200 p-5">
+            <p className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-4">Фотогалерея</p>
+            <div className="grid grid-cols-3 gap-2">
+              {galleryPhotos.map((photo: { id: string; url: string; caption: string | null }) => (
+                <div key={photo.id} className="aspect-square rounded-lg overflow-hidden bg-stone-100">
+                  <img
+                    src={photo.url}
+                    alt={photo.caption || ''}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
