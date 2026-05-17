@@ -12,6 +12,7 @@ type Person = {
   first_name: string | null
   last_name: string | null
   middle_name: string | null
+  clan_name: string | null
   birth_date: string | null
   death_date: string | null
   biography: string | null
@@ -193,11 +194,11 @@ export default function PersonDetailPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [form, setForm] = useState<{
-    last_name: string; first_name: string; middle_name: string
+    last_name: string; first_name: string; middle_name: string; clan_name: string
     birth_date: string; death_date: string; biography: string
     burial_lat: string; burial_lng: string; burial_place: string
   }>({
-    last_name: '', first_name: '', middle_name: '',
+    last_name: '', first_name: '', middle_name: '', clan_name: '',
     birth_date: '', death_date: '', biography: '',
     burial_lat: '', burial_lng: '', burial_place: '',
   })
@@ -211,6 +212,7 @@ export default function PersonDetailPage() {
         last_name: data.last_name || '',
         first_name: data.first_name || '',
         middle_name: data.middle_name || '',
+        clan_name: data.clan_name || '',
         birth_date: data.birth_date || '',
         death_date: data.death_date || '',
         biography: data.biography || '',
@@ -246,6 +248,7 @@ export default function PersonDetailPage() {
         first_name: form.first_name || null,
         last_name: form.last_name || null,
         middle_name: form.middle_name || null,
+        clan_name: form.clan_name || null,
         birth_date: form.birth_date || null,
         death_date: form.death_date || null,
         biography: form.biography || null,
@@ -324,10 +327,20 @@ export default function PersonDetailPage() {
                   className="w-full text-center border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
                 />
               ))}
+              <input
+                type="text"
+                value={form.clan_name}
+                onChange={e => setForm(f => ({ ...f, clan_name: e.target.value }))}
+                placeholder="Род (например: Ахмадовы)"
+                className="w-full text-center border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
+              />
             </div>
           ) : (
             <>
               <h1 className="text-xl font-medium text-stone-800">{fullName}</h1>
+              {person.clan_name && (
+                <p className="text-stone-500 text-sm mt-0.5">Род: {person.clan_name}</p>
+              )}
               {(person.birth_date || person.death_date) && (
                 <p className="text-stone-400 text-sm mt-1">
                   {person.birth_date ? new Date(person.birth_date).getFullYear() : '?'}

@@ -15,6 +15,7 @@ export default function NewPersonPage() {
     last_name: '',
     first_name: '',
     middle_name: '',
+    clan_name: '',
     birth_date: '',
     death_date: '',
     biography: '',
@@ -45,6 +46,7 @@ export default function NewPersonPage() {
           first_name: form.first_name || null,
           last_name: form.last_name || null,
           middle_name: form.middle_name || null,
+          clan_name: form.clan_name || null,
           birth_date: form.birth_date || null,
           death_date: form.death_date || null,
           biography: form.biography || null,
@@ -138,6 +140,17 @@ export default function NewPersonPage() {
                 />
               </div>
             ))}
+            <div>
+              <label className="block text-sm text-stone-600 mb-1">Род / фамильная ветвь</label>
+              <input
+                type="text"
+                value={form.clan_name}
+                onChange={e => setForm(f => ({ ...f, clan_name: e.target.value }))}
+                className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300"
+                placeholder="Например: Ахмадовы, Джабраиловы..."
+              />
+              <p className="text-xs text-stone-400 mt-1">Используется для группировки в семейном дереве</p>
+            </div>
           </div>
 
           {/* Даты */}

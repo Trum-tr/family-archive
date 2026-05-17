@@ -27,6 +27,7 @@ type Person = {
   id: string
   first_name: string | null
   last_name: string | null
+  clan_name: string | null
   birth_date: string | null
   death_date: string | null
   main_photo_url: string | null
@@ -164,7 +165,7 @@ export default function TreePage() {
 
       const [{ data: p }, { data: r }] = await Promise.all([
         supabase.from('persons')
-          .select('id, first_name, last_name, birth_date, death_date, main_photo_url')
+          .select('id, first_name, last_name, clan_name, birth_date, death_date, main_photo_url')
           .eq('created_by', user.id),
         supabase.from('relationships').select('id, person1_id, person2_id, relation_type'),
       ])
@@ -213,6 +214,17 @@ export default function TreePage() {
   const familyGroups = findFamilyGroups(persons, rels)
   const uniqueGroups = [...new Set(Object.values(familyGroups))].sort()
 
+  // Для каждой группы — название рода (если задано хоть у кого-то из группы)
+  const groupClanName: Record<number, string> = {}
+  for (const p of persons) {
+    const g = familyGroups[p.id]
+    if (p.clan_name && !groupClanName[g]) {
+      groupClanName[g] = p.clan_name
+    }
+  }
+  const getGroupLabel = (g: number) =>
+    groupClanName[g] || getGroupLabel(g)
+
   type Edge = { d: string; dashed: boolean }
   const edges: Edge[] = []
   for (const r of rels) {
@@ -253,7 +265,7 @@ export default function TreePage() {
                 <span key={g} className="flex items-center gap-1 text-xs text-stone-500">
                   <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
                     style={{ background: FAMILY_COLORS[g % FAMILY_COLORS.length].strip }} />
-                  {FAMILY_COLORS[g % FAMILY_COLORS.length].label}
+                  {getGroupLabel(g)}
                 </span>
               ))}
               {uniqueGroups.length > 5 && (
