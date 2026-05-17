@@ -21,6 +21,7 @@ function GallerySection({ personId }: { personId: string }) {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
   const [caption, setCaption] = useState('')
   const [preview, setPreview] = useState<{ file: File; url: string } | null>(null)
 
@@ -45,22 +46,35 @@ function GallerySection({ personId }: { personId: string }) {
   async function handleUpload() {
     if (!preview) return
     setUploading(true)
+    setUploadError('')
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      const ext = preview.file.name.split('.').pop()
-      const path = `${user?.id ?? 'anon'}/${personId}/${Date.now()}.${ext}`
-      const { error } = await supabase.storage.from('photos').upload(path, preview.file, { upsert: true })
-      if (error) throw error
+      const uid = user?.id ?? 'public'
+      const ext = preview.file.name.split('.').pop() ?? 'jpg'
+      const path = `${uid}/${personId}/${Date.now()}.${ext}`
+      const { error: storageError } = await supabase.storage
+        .from('photos')
+        .upload(path, preview.file, { upsert: false })
+      if (storageError) {
+        setUploadError(`Ошибка загрузки: ${storageError.message}`)
+        return
+      }
       const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path)
-      await supabase.from('photos').insert({
+      const { error: dbError } = await supabase.from('photos').insert({
         person_id: personId,
         url: urlData.publicUrl,
         caption: caption || null,
       })
+      if (dbError) {
+        setUploadError(`Ошибка сохранения: ${dbError.message}`)
+        return
+      }
       setPreview(null)
       setCaption('')
       load()
+    } catch (e) {
+      setUploadError(`Неизвестная ошибка: ${e}`)
     } finally {
       setUploading(false)
     }
@@ -117,6 +131,9 @@ function GallerySection({ personId }: { personId: string }) {
             placeholder="Подпись (необязательно)"
             className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"
           />
+          {uploadError && (
+            <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{uploadError}</p>
+          )}
           <div className="flex gap-2">
             <button
               onClick={handleUpload}
@@ -126,7 +143,7 @@ function GallerySection({ personId }: { personId: string }) {
               {uploading ? 'Загружаю...' : 'Загрузить'}
             </button>
             <button
-              onClick={() => { setPreview(null); setCaption('') }}
+              onClick={() => { setPreview(null); setCaption(''); setUploadError('') }}
               className="flex-1 py-2 border border-stone-200 text-stone-600 text-sm rounded-lg hover:bg-stone-50 transition-colors"
             >
               Отмена
