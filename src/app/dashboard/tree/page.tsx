@@ -382,7 +382,13 @@ export default function TreePage() {
                         </foreignObject>
                       </>
                     ) : (
-                      <text x={x + NODE_W / 2} y={y + 61} textAnchor="middle" fontSize={26} fill="#d6d3d1">👤</text>
+                      /* SVG-силуэт человека (эмодзи в SVG не рендерится) */
+                      <g>
+                        {/* Голова */}
+                        <circle cx={x + NODE_W / 2} cy={y + 44} r={13} fill="#d6d3d1" />
+                        {/* Тело */}
+                        <ellipse cx={x + NODE_W / 2} cy={y + 71} rx={21} ry={16} fill="#d6d3d1" />
+                      </g>
                     )}
 
                     {/* Фамилия */}
