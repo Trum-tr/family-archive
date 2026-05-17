@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -18,16 +18,6 @@ type MediaItem = {
   created_at: string
 }
 
-// ─── Загрузка аудио в Storage ──────────────────────────────────
-async function uploadAudio(file: File, personId: string): Promise<string | null> {
-  const supabase = createClient()
-  const ext = file.name.split('.').pop()
-  const path = `${personId}/${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('audio').upload(path, file, { upsert: true })
-  if (error) { console.error(error); return null }
-  const { data } = supabase.storage.from('audio').getPublicUrl(path)
-  return data.publicUrl
-}
 
 // ─── Извлечь embed из YouTube / VK ────────────────────────────
 function getVideoEmbed(url: string): string | null {
@@ -47,9 +37,7 @@ function MediaSection({ personId }: { personId: string }) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
-  const [audioFile, setAudioFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     const supabase = createClient()
@@ -68,12 +56,10 @@ function MediaSection({ personId }: { personId: string }) {
     const supabase = createClient()
     try {
       if (tab === 'audio') {
-        if (!audioFile) return
-        const url = await uploadAudio(audioFile, personId)
-        if (!url) throw new Error('upload failed')
+        if (!content) return
         await supabase.from('media_items').insert({
           person_id: personId, type: 'audio',
-          title: title || audioFile.name, file_url: url,
+          title: title || 'Аудио', file_url: content,
         })
       } else if (tab === 'video') {
         if (!content) return
@@ -88,7 +74,7 @@ function MediaSection({ personId }: { personId: string }) {
           title: title || null, content,
         })
       }
-      setAdding(false); setTitle(''); setContent(''); setAudioFile(null)
+      setAdding(false); setTitle(''); setContent('')
       load()
     } finally {
       setSaving(false) }
@@ -139,13 +125,10 @@ function MediaSection({ personId }: { personId: string }) {
 
           {tab === 'audio' && (
             <div>
-              <input ref={fileRef} type="file" accept="audio/*" className="hidden"
-                onChange={e => setAudioFile(e.target.files?.[0] || null)} />
-              <button onClick={() => fileRef.current?.click()}
-                className="w-full border-2 border-dashed border-stone-200 rounded-lg py-4 text-sm text-stone-400 hover:border-stone-300 hover:text-stone-500 transition-colors">
-                {audioFile ? `✅ ${audioFile.name}` : '+ Выбрать аудиофайл (MP3, M4A, WAV)'}
-              </button>
-              <p className="text-xs text-stone-400 mt-1">Рекомендуется до 50 МБ</p>
+              <input type="text" value={content} onChange={e => setContent(e.target.value)}
+                placeholder="Прямая ссылка на аудио (Google Drive, Яндекс Диск, SoundCloud...)"
+                className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300" />
+              <p className="text-xs text-stone-400 mt-1">Вставьте прямую ссылку на MP3/M4A файл или SoundCloud трек</p>
             </div>
           )}
 
@@ -163,7 +146,7 @@ function MediaSection({ personId }: { personId: string }) {
               className="flex-1 py-2 bg-stone-800 text-white text-sm rounded-lg hover:bg-stone-700 disabled:opacity-50 transition-colors">
               {saving ? 'Сохраняю...' : 'Сохранить'}
             </button>
-            <button onClick={() => { setAdding(false); setTitle(''); setContent(''); setAudioFile(null) }}
+            <button onClick={() => { setAdding(false); setTitle(''); setContent('') }}
               className="flex-1 py-2 border border-stone-200 text-stone-600 text-sm rounded-lg hover:bg-stone-50 transition-colors">
               Отмена
             </button>
