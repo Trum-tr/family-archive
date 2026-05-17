@@ -36,6 +36,12 @@ export default async function PublicProfilePage({ params }: Props) {
 
   if (!person) notFound()
 
+  const { data: mediaItems } = await supabase
+    .from('media_items')
+    .select('*')
+    .eq('person_id', id)
+    .order('created_at', { ascending: true })
+
   const fullName = [person.last_name, person.first_name, person.middle_name].filter(Boolean).join(' ') || 'Неизвестный'
 
   const birthYear = person.birth_date ? new Date(person.birth_date).getFullYear() : null
@@ -123,6 +129,48 @@ export default async function PublicProfilePage({ params }: Props) {
                 🗺 Открыть на карте
               </a>
             )}
+          </div>
+        )}
+
+        {/* Медиа */}
+        {mediaItems && mediaItems.length > 0 && (
+          <div className="bg-white rounded-xl border border-stone-200 p-5 space-y-4">
+            <p className="text-xs font-medium text-stone-400 uppercase tracking-wider">Материалы</p>
+            {mediaItems.map((item: { id: string; type: string; title: string | null; content: string | null; file_url: string | null }) => {
+              if (item.type === 'note') return (
+                <div key={item.id}>
+                  {item.title && <p className="text-sm font-medium text-stone-700 mb-1">📝 {item.title}</p>}
+                  <p className="text-sm text-stone-600 whitespace-pre-wrap leading-relaxed">{item.content}</p>
+                </div>
+              )
+              if (item.type === 'audio') return (
+                <div key={item.id}>
+                  <p className="text-sm font-medium text-stone-700 mb-2">🎵 {item.title || 'Аудио'}</p>
+                  <audio controls className="w-full h-10" src={item.file_url!}>Ваш браузер не поддерживает аудио</audio>
+                </div>
+              )
+              if (item.type === 'video') {
+                const yt = item.content?.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/)
+                const vk = item.content?.match(/vk\.com\/video(-?\d+)_(\d+)/)
+                const embed = yt ? `https://www.youtube.com/embed/${yt[1]}`
+                  : vk ? `https://vk.com/video_ext.php?oid=${vk[1]}&id=${vk[2]}` : null
+                return (
+                  <div key={item.id}>
+                    <p className="text-sm font-medium text-stone-700 mb-2">🎬 {item.title || 'Видео'}</p>
+                    {embed ? (
+                      <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+                        <iframe src={embed} className="absolute inset-0 w-full h-full rounded-lg"
+                          allowFullScreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
+                      </div>
+                    ) : (
+                      <a href={item.content!} target="_blank" rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:underline">{item.content}</a>
+                    )}
+                  </div>
+                )
+              }
+              return null
+            })}
           </div>
         )}
 

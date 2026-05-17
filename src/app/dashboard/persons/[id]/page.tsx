@@ -1,11 +1,238 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { uploadPhoto } from '@/lib/supabase/storage'
 import QRCode from '@/components/QRCode'
+
+// ─── Типы медиа ───────────────────────────────────────────────
+type MediaItem = {
+  id: string
+  person_id: string
+  type: 'note' | 'audio' | 'video'
+  title: string | null
+  content: string | null
+  file_url: string | null
+  created_at: string
+}
+
+// ─── Загрузка аудио в Storage ──────────────────────────────────
+async function uploadAudio(file: File, personId: string): Promise<string | null> {
+  const supabase = createClient()
+  const ext = file.name.split('.').pop()
+  const path = `${personId}/${Date.now()}.${ext}`
+  const { error } = await supabase.storage.from('audio').upload(path, file, { upsert: true })
+  if (error) { console.error(error); return null }
+  const { data } = supabase.storage.from('audio').getPublicUrl(path)
+  return data.publicUrl
+}
+
+// ─── Извлечь embed из YouTube / VK ────────────────────────────
+function getVideoEmbed(url: string): string | null {
+  // YouTube
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/)
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`
+  // VK
+  const vk = url.match(/vk\.com\/video(-?\d+)_(\d+)/)
+  if (vk) return `https://vk.com/video_ext.php?oid=${vk[1]}&id=${vk[2]}`
+  return null
+}
+
+// ─── Компонент медиасекции ─────────────────────────────────────
+function MediaSection({ personId }: { personId: string }) {
+  const [items, setItems] = useState<MediaItem[]>([])
+  const [tab, setTab] = useState<'note' | 'audio' | 'video'>('note')
+  const [adding, setAdding] = useState(false)
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const [audioFile, setAudioFile] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const load = useCallback(async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('media_items')
+      .select('*')
+      .eq('person_id', personId)
+      .order('created_at', { ascending: false })
+    setItems((data as MediaItem[]) || [])
+  }, [personId])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleSave() {
+    setSaving(true)
+    const supabase = createClient()
+    try {
+      if (tab === 'audio') {
+        if (!audioFile) return
+        const url = await uploadAudio(audioFile, personId)
+        if (!url) throw new Error('upload failed')
+        await supabase.from('media_items').insert({
+          person_id: personId, type: 'audio',
+          title: title || audioFile.name, file_url: url,
+        })
+      } else if (tab === 'video') {
+        if (!content) return
+        await supabase.from('media_items').insert({
+          person_id: personId, type: 'video',
+          title: title || 'Видео', content,
+        })
+      } else {
+        if (!content) return
+        await supabase.from('media_items').insert({
+          person_id: personId, type: 'note',
+          title: title || null, content,
+        })
+      }
+      setAdding(false); setTitle(''); setContent(''); setAudioFile(null)
+      load()
+    } finally {
+      setSaving(false) }
+  }
+
+  async function handleDelete(id: string) {
+    const supabase = createClient()
+    await supabase.from('media_items').delete().eq('id', id)
+    load()
+  }
+
+  const byType = (t: MediaItem['type']) => items.filter(i => i.type === t)
+
+  return (
+    <div className="bg-white rounded-xl border border-stone-200 p-5 mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs font-medium text-stone-500 uppercase tracking-wider">Медиа</p>
+        {!adding && (
+          <button onClick={() => setAdding(true)}
+            className="text-xs text-stone-600 border border-stone-200 rounded-lg px-2.5 py-1 hover:bg-stone-50 transition-colors">
+            + Добавить
+          </button>
+        )}
+      </div>
+
+      {/* Форма добавления */}
+      {adding && (
+        <div className="mb-4 p-4 bg-stone-50 rounded-xl space-y-3">
+          {/* Вкладки типа */}
+          <div className="flex gap-1 bg-stone-100 rounded-lg p-1">
+            {([['note','📝 Заметка'],['audio','🎵 Аудио'],['video','🎬 Видео']] as const).map(([t, label]) => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${tab === t ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <input type="text" value={title} onChange={e => setTitle(e.target.value)}
+            placeholder={tab === 'note' ? 'Заголовок (необязательно)' : 'Название'}
+            className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300" />
+
+          {tab === 'note' && (
+            <textarea value={content} onChange={e => setContent(e.target.value)}
+              rows={4} placeholder="Текст воспоминания, история, факты..."
+              className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300 resize-none" />
+          )}
+
+          {tab === 'audio' && (
+            <div>
+              <input ref={fileRef} type="file" accept="audio/*" className="hidden"
+                onChange={e => setAudioFile(e.target.files?.[0] || null)} />
+              <button onClick={() => fileRef.current?.click()}
+                className="w-full border-2 border-dashed border-stone-200 rounded-lg py-4 text-sm text-stone-400 hover:border-stone-300 hover:text-stone-500 transition-colors">
+                {audioFile ? `✅ ${audioFile.name}` : '+ Выбрать аудиофайл (MP3, M4A, WAV)'}
+              </button>
+              <p className="text-xs text-stone-400 mt-1">Рекомендуется до 50 МБ</p>
+            </div>
+          )}
+
+          {tab === 'video' && (
+            <div>
+              <input type="text" value={content} onChange={e => setContent(e.target.value)}
+                placeholder="Ссылка на YouTube или VK видео"
+                className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300" />
+              <p className="text-xs text-stone-400 mt-1">Поддерживаются: youtube.com, youtu.be, vk.com</p>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button onClick={handleSave} disabled={saving}
+              className="flex-1 py-2 bg-stone-800 text-white text-sm rounded-lg hover:bg-stone-700 disabled:opacity-50 transition-colors">
+              {saving ? 'Сохраняю...' : 'Сохранить'}
+            </button>
+            <button onClick={() => { setAdding(false); setTitle(''); setContent(''); setAudioFile(null) }}
+              className="flex-1 py-2 border border-stone-200 text-stone-600 text-sm rounded-lg hover:bg-stone-50 transition-colors">
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Список медиа */}
+      {items.length === 0 && !adding ? (
+        <p className="text-sm text-stone-300 italic">Медиа не добавлено</p>
+      ) : (
+        <div className="space-y-3">
+          {/* Заметки */}
+          {byType('note').map(item => (
+            <div key={item.id} className="border border-stone-100 rounded-xl p-3 bg-stone-50">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  {item.title && <p className="text-sm font-medium text-stone-700 mb-1">📝 {item.title}</p>}
+                  <p className="text-sm text-stone-600 whitespace-pre-wrap leading-relaxed">{item.content}</p>
+                </div>
+                <button onClick={() => handleDelete(item.id)}
+                  className="text-stone-300 hover:text-red-400 transition-colors text-lg leading-none flex-shrink-0">×</button>
+              </div>
+            </div>
+          ))}
+
+          {/* Аудио */}
+          {byType('audio').map(item => (
+            <div key={item.id} className="border border-stone-100 rounded-xl p-3 bg-stone-50">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-sm font-medium text-stone-700">🎵 {item.title || 'Аудио'}</p>
+                <button onClick={() => handleDelete(item.id)}
+                  className="text-stone-300 hover:text-red-400 transition-colors text-lg leading-none">×</button>
+              </div>
+              {item.file_url && (
+                <audio controls className="w-full h-10" src={item.file_url}>
+                  Ваш браузер не поддерживает аудио
+                </audio>
+              )}
+            </div>
+          ))}
+
+          {/* Видео */}
+          {byType('video').map(item => {
+            const embed = item.content ? getVideoEmbed(item.content) : null
+            return (
+              <div key={item.id} className="border border-stone-100 rounded-xl p-3 bg-stone-50">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-sm font-medium text-stone-700">🎬 {item.title || 'Видео'}</p>
+                  <button onClick={() => handleDelete(item.id)}
+                    className="text-stone-300 hover:text-red-400 transition-colors text-lg leading-none">×</button>
+                </div>
+                {embed ? (
+                  <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+                    <iframe src={embed} className="absolute inset-0 w-full h-full rounded-lg"
+                      allowFullScreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
+                  </div>
+                ) : (
+                  <a href={item.content!} target="_blank" rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:underline break-all">{item.content}</a>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 type Person = {
   id: string
@@ -427,6 +654,9 @@ export default function PersonDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Медиа */}
+        {!editing && <MediaSection personId={id} />}
 
         {/* Родственники */}
         {!editing && <RelativesSection personId={id} />}
