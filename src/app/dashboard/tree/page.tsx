@@ -9,7 +9,7 @@ const NODE_W = 130
 const NODE_H = 168
 const GEN_GAP = 220
 const NODE_GAP = 50
-const PAD = 60
+const PAD = 100
 
 // Цвета для семейных групп (связных компонент)
 const FAMILY_COLORS = [
@@ -339,6 +339,12 @@ export default function TreePage() {
               <filter id="card-shadow" x="-20%" y="-20%" width="140%" height="140%">
                 <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#00000018" />
               </filter>
+              {/* clipPath для фото-аватаров — вынесены в defs чтобы гарантированно работали */}
+              {nodes.map(node => (
+                <clipPath key={`cp-def-${node.id}`} id={`cp-${node.id}`}>
+                  <circle cx={node.x + NODE_W / 2} cy={node.y + 54} r={34} />
+                </clipPath>
+              ))}
             </defs>
 
             <g transform={`translate(${tx}, ${ty}) scale(${scale})`}>
@@ -366,36 +372,26 @@ export default function TreePage() {
                     <rect x={x} y={y} width={NODE_W} height={NODE_H} rx={12}
                       fill="white" stroke="#e7e5e4" strokeWidth={1} filter="url(#card-shadow)" />
 
-                    {/* Цветная полоска рода */}
-                    <clipPath id={`clip-top-${node.id}`}>
-                      <rect x={x} y={y} width={NODE_W} height={12} rx={12} />
-                    </clipPath>
-                    <rect x={x} y={y} width={NODE_W} height={8} fill={color}
-                      clipPath={`url(#clip-top-${node.id})`} />
+                    {/* Цветная полоска — path с закруглёнными верхними углами (без clipPath) */}
+                    <path
+                      d={`M ${x} ${y+12} A 12 12 0 0 1 ${x+12} ${y} L ${x+NODE_W-12} ${y} A 12 12 0 0 1 ${x+NODE_W} ${y+12} L ${x+NODE_W} ${y+8} L ${x} ${y+8} Z`}
+                      fill={color}
+                    />
 
-                    {/* Аватар */}
-                    <circle cx={x + NODE_W / 2} cy={y + 54} r={34} fill="#f5f5f4" />
+                    {/* Аватар фон */}
+                    <circle cx={x + NODE_W / 2} cy={y + 54} r={34} fill="#e7e5e4" />
                     {node.main_photo_url ? (
-                      <>
-                        <defs>
-                          <clipPath id={`cp-${node.id}`}>
-                            <circle cx={x + NODE_W / 2} cy={y + 54} r={34} />
-                          </clipPath>
-                        </defs>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <foreignObject x={x + NODE_W / 2 - 34} y={y + 20} width={68} height={68}
-                          clipPath={`url(#cp-${node.id})`}>
-                          <img src={node.main_photo_url} alt=""
-                            style={{ width: 68, height: 68, objectFit: 'cover', borderRadius: '50%' }} />
-                        </foreignObject>
-                      </>
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <foreignObject x={x + NODE_W / 2 - 34} y={y + 20} width={68} height={68}
+                        clipPath={`url(#cp-${node.id})`}>
+                        <img src={node.main_photo_url} alt=""
+                          style={{ width: 68, height: 68, objectFit: 'cover', borderRadius: '50%' }} />
+                      </foreignObject>
                     ) : (
-                      /* SVG-силуэт человека (эмодзи в SVG не рендерится) */
+                      /* SVG-силуэт: тёмный для контраста с фоном */
                       <g>
-                        {/* Голова */}
-                        <circle cx={x + NODE_W / 2} cy={y + 44} r={13} fill="#d6d3d1" />
-                        {/* Тело */}
-                        <ellipse cx={x + NODE_W / 2} cy={y + 71} rx={21} ry={16} fill="#d6d3d1" />
+                        <circle cx={x + NODE_W / 2} cy={y + 44} r={13} fill="#a8a29e" />
+                        <ellipse cx={x + NODE_W / 2} cy={y + 71} rx={21} ry={16} fill="#a8a29e" />
                       </g>
                     )}
 
