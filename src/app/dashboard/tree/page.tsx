@@ -222,8 +222,8 @@ export default function TreePage() {
       groupClanName[g] = p.clan_name
     }
   }
-  const getGroupLabel = (g: number) =>
-    groupClanName[g] || getGroupLabel(g)
+  const getGroupLabel = (g: number): string =>
+    groupClanName[g] || FAMILY_COLORS[g % FAMILY_COLORS.length].label
 
   type Edge = { d: string; dashed: boolean }
   const edges: Edge[] = []
