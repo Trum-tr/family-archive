@@ -1,14 +1,19 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { uploadPhoto } from '@/lib/supabase/storage'
+import { Suspense } from 'react'
 
-export default function NewPersonPage() {
+function NewPersonForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const familyIdFromUrl = searchParams.get('family')
+
   const [loading, setLoading] = useState(false)
+  const [familyId, setFamilyId] = useState<string | null>(familyIdFromUrl)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -23,6 +28,30 @@ export default function NewPersonPage() {
     burial_lng: '',
     burial_place: '',
   })
+
+  // Получаем family_id если не передан в URL
+  useEffect(() => {
+    if (familyId) return
+    const supabase = createClient()
+    async function getFamilyId() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data: mySpace } = await supabase
+        .from('family_spaces')
+        .select('id')
+        .eq('created_by', user.id)
+        .single()
+      if (mySpace?.id) { setFamilyId(mySpace.id); return }
+      const { data: membership } = await supabase
+        .from('family_members')
+        .select('family_id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .single()
+      if (membership?.family_id) setFamilyId(membership.family_id)
+    }
+    getFamilyId()
+  }, [familyId])
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -39,7 +68,6 @@ export default function NewPersonPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      // Создаём запись
       const { data: person, error } = await supabase
         .from('persons')
         .insert({
@@ -54,13 +82,13 @@ export default function NewPersonPage() {
           burial_lng: form.burial_lng ? parseFloat(form.burial_lng) : null,
           burial_place: form.burial_place || null,
           created_by: user.id,
+          family_id: familyId ?? null,
         })
         .select()
         .single()
 
       if (error || !person) throw error
 
-      // Загружаем фото если есть
       if (photoFile) {
         const url = await uploadPhoto(photoFile, user.id, person.id)
         if (url) {
@@ -103,17 +131,8 @@ export default function NewPersonPage() {
                 )}
               </div>
               <div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handlePhotoChange}
-                  className="hidden"
-                  id="photo-input"
-                />
-                <label
-                  htmlFor="photo-input"
-                  className="inline-block px-4 py-2 border border-stone-300 text-stone-600 text-sm rounded-lg cursor-pointer hover:bg-stone-50 transition-colors"
-                >
+                <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" id="photo-input" />
+                <label htmlFor="photo-input" className="inline-block px-4 py-2 border border-stone-300 text-stone-600 text-sm rounded-lg cursor-pointer hover:bg-stone-50 transition-colors">
                   Выбрать фото
                 </label>
                 <p className="text-xs text-stone-400 mt-1">JPG, PNG, WEBP до 5 МБ</p>
@@ -149,7 +168,6 @@ export default function NewPersonPage() {
                 className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300"
                 placeholder="Например: Ахмадовы, Джабраиловы..."
               />
-              <p className="text-xs text-stone-400 mt-1">Используется для группировки в семейном дереве</p>
             </div>
           </div>
 
@@ -159,21 +177,11 @@ export default function NewPersonPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-stone-600 mb-1">Дата рождения</label>
-                <input
-                  type="date"
-                  value={form.birth_date}
-                  onChange={e => setForm(f => ({ ...f, birth_date: e.target.value }))}
-                  className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300"
-                />
+                <input type="date" value={form.birth_date} onChange={e => setForm(f => ({ ...f, birth_date: e.target.value }))} className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300" />
               </div>
               <div>
                 <label className="block text-sm text-stone-600 mb-1">Дата смерти</label>
-                <input
-                  type="date"
-                  value={form.death_date}
-                  onChange={e => setForm(f => ({ ...f, death_date: e.target.value }))}
-                  className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300"
-                />
+                <input type="date" value={form.death_date} onChange={e => setForm(f => ({ ...f, death_date: e.target.value }))} className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300" />
               </div>
             </div>
           </div>
@@ -195,58 +203,39 @@ export default function NewPersonPage() {
             <label className="block text-xs font-medium text-stone-500 uppercase tracking-wider">Место захоронения</label>
             <div>
               <label className="block text-sm text-stone-600 mb-1">Название кладбища / адрес</label>
-              <input
-                type="text"
-                value={form.burial_place}
-                onChange={e => setForm(f => ({ ...f, burial_place: e.target.value }))}
-                className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300"
-                placeholder="Например: Новодевичье кладбище, Москва"
-              />
+              <input type="text" value={form.burial_place} onChange={e => setForm(f => ({ ...f, burial_place: e.target.value }))} className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300" placeholder="Например: Новодевичье кладбище, Москва" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-stone-600 mb-1">Широта (lat)</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={form.burial_lat}
-                  onChange={e => setForm(f => ({ ...f, burial_lat: e.target.value }))}
-                  className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300"
-                  placeholder="55.7289"
-                />
+                <input type="number" step="any" value={form.burial_lat} onChange={e => setForm(f => ({ ...f, burial_lat: e.target.value }))} className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300" placeholder="55.7289" />
               </div>
               <div>
                 <label className="block text-sm text-stone-600 mb-1">Долгота (lng)</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={form.burial_lng}
-                  onChange={e => setForm(f => ({ ...f, burial_lng: e.target.value }))}
-                  className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300"
-                  placeholder="37.5672"
-                />
+                <input type="number" step="any" value={form.burial_lng} onChange={e => setForm(f => ({ ...f, burial_lng: e.target.value }))} className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-300" placeholder="37.5672" />
               </div>
             </div>
           </div>
 
           {/* Кнопки */}
           <div className="flex gap-3">
-            <Link
-              href="/dashboard/persons"
-              className="flex-1 text-center px-4 py-3 border border-stone-300 text-stone-600 text-sm font-medium rounded-lg hover:bg-stone-50 transition-colors"
-            >
+            <Link href="/dashboard/persons" className="flex-1 text-center px-4 py-3 border border-stone-300 text-stone-600 text-sm font-medium rounded-lg hover:bg-stone-50 transition-colors">
               Отмена
             </Link>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 px-4 py-3 bg-stone-800 text-white text-sm font-medium rounded-lg hover:bg-stone-700 transition-colors disabled:opacity-50"
-            >
+            <button type="submit" disabled={loading} className="flex-1 px-4 py-3 bg-stone-800 text-white text-sm font-medium rounded-lg hover:bg-stone-700 transition-colors disabled:opacity-50">
               {loading ? 'Сохранение...' : 'Сохранить'}
             </button>
           </div>
         </form>
       </div>
     </div>
+  )
+}
+
+export default function NewPersonPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-stone-50 flex items-center justify-center"><p className="text-stone-400 text-sm">Загрузка…</p></div>}>
+      <NewPersonForm />
+    </Suspense>
   )
 }

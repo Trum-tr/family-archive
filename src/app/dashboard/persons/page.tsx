@@ -17,11 +17,32 @@ export default async function PersonsPage({ searchParams }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // Получаем family_id пользователя (своё пространство или членство)
+  const { data: mySpace } = await supabase
+    .from('family_spaces')
+    .select('id')
+    .eq('created_by', user.id)
+    .single()
+
+  const { data: memberSpaces } = await supabase
+    .from('family_members')
+    .select('family_id')
+    .eq('user_id', user.id)
+    .limit(1)
+
+  const familyId = mySpace?.id ?? memberSpaces?.[0]?.family_id ?? null
+
   let dbQuery = supabase
     .from('persons')
     .select('id, first_name, last_name, middle_name, birth_date, death_date, main_photo_url, clan_name, is_alive, is_root, profile_visibility')
-    .eq('created_by', user.id)
     .order('created_at', { ascending: false })
+
+  // Фильтруем по семейному пространству (или по владельцу как fallback)
+  if (familyId) {
+    dbQuery = dbQuery.eq('family_id', familyId)
+  } else {
+    dbQuery = dbQuery.eq('created_by', user.id)
+  }
 
   if (query) {
     dbQuery = dbQuery.or(
@@ -37,7 +58,6 @@ export default async function PersonsPage({ searchParams }: Props) {
 
   const { data: persons } = await dbQuery
 
-  const totalAll = statusFilter !== 'all' ? null : persons?.length ?? 0
   const aliveCount = persons?.filter(p => p.is_alive).length ?? 0
   const deceasedCount = persons?.filter(p => !p.is_alive).length ?? 0
 
@@ -53,7 +73,7 @@ export default async function PersonsPage({ searchParams }: Props) {
             <h1 className="text-2xl font-light text-stone-800 mt-1">Генеалогия рода</h1>
           </div>
           <Link
-            href="/dashboard/persons/new"
+            href={`/dashboard/persons/new${familyId ? `?family=${familyId}` : ''}`}
             className="px-4 py-2 bg-stone-800 text-white text-sm font-medium rounded-lg hover:bg-stone-700 transition-colors"
           >
             + Добавить
@@ -125,7 +145,7 @@ export default async function PersonsPage({ searchParams }: Props) {
               </p>
               {statusFilter === 'all' && (
                 <Link
-                  href="/dashboard/persons/new"
+                  href={`/dashboard/persons/new${familyId ? `?family=${familyId}` : ''}`}
                   className="inline-block mt-6 px-6 py-2.5 bg-stone-800 text-white text-sm font-medium rounded-lg hover:bg-stone-700 transition-colors"
                 >
                   Добавить первого участника
@@ -146,7 +166,6 @@ export default async function PersonsPage({ searchParams }: Props) {
                   href={`/dashboard/persons/${person.id}`}
                   className="flex items-center gap-4 bg-white border border-stone-200 rounded-xl p-4 hover:border-stone-300 hover:shadow-sm transition-all"
                 >
-                  {/* Фото */}
                   <div className={`w-14 h-14 rounded-full flex-shrink-0 overflow-hidden relative ${
                     person.is_alive ? 'ring-2 ring-emerald-200' : 'ring-2 ring-stone-200'
                   }`}>
@@ -157,7 +176,6 @@ export default async function PersonsPage({ searchParams }: Props) {
                     )}
                   </div>
 
-                  {/* Инфо */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-0.5">
                       <p className="font-medium text-stone-800 truncate">{name || 'Без имени'}</p>
@@ -166,7 +184,6 @@ export default async function PersonsPage({ searchParams }: Props) {
                       )}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                      {/* Статус */}
                       {person.is_alive ? (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
@@ -182,7 +199,6 @@ export default async function PersonsPage({ searchParams }: Props) {
                           {person.clan_name}
                         </span>
                       )}
-                      {/* Видимость */}
                       {person.profile_visibility === 'private' && (
                         <span className="text-xs text-stone-400 flex-shrink-0">🔒</span>
                       )}

@@ -47,8 +47,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Не удалось создать приглашение' }, { status: 500 })
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'
-  const link = `${baseUrl}/invite/${invite.token}`
+  // Используем origin из запроса — работает и локально, и на Vercel
+  const origin = req.nextUrl.origin
+  const link = `${origin}/invite/${invite.token}`
 
   return NextResponse.json({ token: invite.token, link })
 }

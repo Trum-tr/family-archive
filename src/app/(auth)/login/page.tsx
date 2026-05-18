@@ -1,12 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-export default function LoginPage() {
+function LoginForm() {
   const supabase = createClient()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectTo = searchParams.get('redirect') || '/dashboard'
 
   const [step, setStep] = useState<'email' | 'otp'>('email')
   const [email, setEmail] = useState('')
@@ -48,7 +50,7 @@ export default function LoginPage() {
       setError('Неверный код. Проверьте письмо и попробуйте снова.')
       return
     }
-    router.push('/dashboard')
+    router.push(redirectTo)
   }
 
   return (
@@ -139,5 +141,17 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen flex items-center justify-center bg-stone-50">
+        <p className="text-stone-400 text-sm">Загрузка…</p>
+      </main>
+    }>
+      <LoginForm />
+    </Suspense>
   )
 }

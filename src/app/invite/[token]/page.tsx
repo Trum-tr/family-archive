@@ -86,19 +86,14 @@ export default async function InvitePage({ params }: Props) {
         ) : (
           <div className="space-y-3">
             <p className="text-stone-400 text-sm mb-4">
-              Войдите или зарегистрируйтесь, чтобы принять приглашение
+              Войдите, чтобы принять приглашение.<br />
+              Нет аккаунта? Просто введите email — создадим автоматически.
             </p>
             <Link
               href={`/login?redirect=/invite/${token}`}
-              className="block w-full py-2.5 bg-stone-800 text-white text-sm rounded-lg hover:bg-stone-700 transition-colors text-center"
+              className="block w-full py-2.5 bg-stone-800 text-white text-sm rounded-lg hover:bg-stone-700 transition-colors text-center font-medium"
             >
-              Войти
-            </Link>
-            <Link
-              href={`/register?redirect=/invite/${token}`}
-              className="block w-full py-2.5 border border-stone-300 text-stone-700 text-sm rounded-lg hover:bg-stone-50 transition-colors text-center"
-            >
-              Зарегистрироваться
+              Войти / Зарегистрироваться
             </Link>
           </div>
         )}
