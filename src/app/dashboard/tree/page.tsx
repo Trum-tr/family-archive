@@ -5,17 +5,22 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const NODE_W = 130
-const NODE_H = 168
-const GEN_GAP = 220
-const NODE_GAP = 50
-const PAD = 80
+// ─── Константы радиального дерева ──────────────────────────────
+const RING_RADIUS = 210   // расстояние между кольцами (поколениями)
+const NODE_R      = 42    // радиус аватара
+const CANVAS      = 4000  // размер SVG-холста (большой, потом fitView)
+const CX          = CANVAS / 2
+const CY          = CANVAS / 2
 
-const FAMILY_COLORS = [
-  '#f59e0b', '#3b82f6', '#10b981', '#ec4899',
-  '#8b5cf6', '#ef4444', '#14b8a6', '#f97316',
-]
+// ─── Цвета узлов ───────────────────────────────────────────────
+const COLOR_ROOT     = '#534AB7'  // фиолетовый — основоположник
+const COLOR_ALIVE    = '#0F6E56'  // тёмно-зелёный — живые
+const COLOR_DECEASED = '#78716c'  // серый — ушедшие
+const COLOR_ROOT_BG  = '#EEEDFE'
+const COLOR_ALIVE_BG = '#E1F5EE'
+const COLOR_DEC_BG   = '#f5f5f4'
 
+// ─── Типы ──────────────────────────────────────────────────────
 type Person = {
   id: string
   first_name: string | null
@@ -24,6 +29,8 @@ type Person = {
   birth_date: string | null
   death_date: string | null
   main_photo_url: string | null
+  is_alive: boolean
+  is_root: boolean
 }
 
 type Rel = {
@@ -33,118 +40,143 @@ type Rel = {
   relation_type: string
 }
 
-type NodeData = Person & { x: number; y: number }
-
-function addToMap(map: Record<string, string[]>, key: string, val: string) {
-  if (!map[key]) map[key] = []
-  map[key].push(val)
+type NodePos = {
+  id: string
+  x: number
+  y: number
+  depth: number
+  angle: number
 }
 
-function buildLayout(persons: Person[], rels: Rel[]): NodeData[] {
+// ─── Построить карту детей ─────────────────────────────────────
+function buildChildrenMap(persons: Person[], rels: Rel[]): Record<string, string[]> {
+  const allIds = new Set(persons.map(p => p.id))
+  const childrenOf: Record<string, string[]> = {}
+  for (const r of rels) {
+    if (!allIds.has(r.person1_id) || !allIds.has(r.person2_id)) continue
+    const addEdge = (parent: string, child: string) => {
+      if (!childrenOf[parent]) childrenOf[parent] = []
+      if (!childrenOf[parent].includes(child)) childrenOf[parent].push(child)
+    }
+    if (r.relation_type === 'parent') addEdge(r.person1_id, r.person2_id)
+    else if (r.relation_type === 'child') addEdge(r.person2_id, r.person1_id)
+  }
+  return childrenOf
+}
+
+// ─── Размер поддерева (для распределения угла) ─────────────────
+function subtreeSize(id: string, childrenOf: Record<string, string[]>, visited: Set<string>): number {
+  if (visited.has(id)) return 1
+  visited.add(id)
+  return 1 + (childrenOf[id] || []).reduce((s, c) => s + subtreeSize(c, childrenOf, visited), 0)
+}
+
+// ─── Радиальная раскладка ──────────────────────────────────────
+function buildRadialLayout(persons: Person[], rels: Rel[]): NodePos[] {
   if (persons.length === 0) return []
 
-  const childrenOf: Record<string, string[]> = {}
+  const childrenOf = buildChildrenMap(persons, rels)
+
+  // Карта родителей
   const parentsOf: Record<string, string[]> = {}
-
   for (const r of rels) {
-    if (r.relation_type === 'parent') {
-      addToMap(childrenOf, r.person1_id, r.person2_id)
-      addToMap(parentsOf, r.person2_id, r.person1_id)
-    } else if (r.relation_type === 'child') {
-      addToMap(childrenOf, r.person2_id, r.person1_id)
-      addToMap(parentsOf, r.person1_id, r.person2_id)
+    const addParent = (child: string, parent: string) => {
+      if (!parentsOf[child]) parentsOf[child] = []
+      if (!parentsOf[child].includes(parent)) parentsOf[child].push(parent)
     }
+    if (r.relation_type === 'parent') addParent(r.person2_id, r.person1_id)
+    else if (r.relation_type === 'child') addParent(r.person1_id, r.person2_id)
   }
 
-  const gen: Record<string, number> = {}
-  const ids = persons.map(p => p.id)
-  const roots = ids.filter(id => !parentsOf[id] || parentsOf[id].length === 0)
-  const starts = roots.length > 0 ? roots : [ids[0]]
-  starts.forEach(id => { gen[id] = 0 })
-
-  const queue = [...starts]
-  while (queue.length > 0) {
-    const cur = queue.shift()!
-    for (const child of childrenOf[cur] || []) {
-      if (gen[child] === undefined) {
-        gen[child] = gen[cur] + 1
-        queue.push(child)
-      }
-    }
-  }
-  ids.forEach(id => { if (gen[id] === undefined) gen[id] = 0 })
-
-  const byGen: Record<number, string[]> = {}
-  ids.forEach(id => {
-    const g = gen[id]
-    if (!byGen[g]) byGen[g] = []
-    byGen[g].push(id)
-  })
-
-  const genList = Object.entries(byGen).map(([g, list]) => ({ g: Number(g), list }))
-  const maxW = Math.max(...genList.map(({ list }) => list.length * (NODE_W + NODE_GAP) - NODE_GAP))
-
-  const result: NodeData[] = []
-  for (const { g, list } of genList) {
-    const rowW = list.length * (NODE_W + NODE_GAP) - NODE_GAP
-    const offsetX = (maxW - rowW) / 2
-    list.forEach((id, i) => {
-      const person = persons.find(p => p.id === id)
-      if (!person) return
-      result.push({
-        ...person,
-        x: PAD + offsetX + i * (NODE_W + NODE_GAP),
-        y: PAD + g * GEN_GAP,
+  // Выбор корня: is_root → без родителей → с наибольшим числом связей
+  const rootPerson = persons.find(p => p.is_root)
+    || persons.find(p => !parentsOf[p.id] || parentsOf[p.id].length === 0)
+    || persons.reduce((best, p) => {
+        const score = (childrenOf[p.id]?.length || 0) - (parentsOf[p.id]?.length || 0)
+        const bestScore = (childrenOf[best.id]?.length || 0) - (parentsOf[best.id]?.length || 0)
+        return score > bestScore ? p : best
       })
+
+  const rootId = rootPerson.id
+  const result: NodePos[] = []
+  const placed = new Set<string>()
+
+  // Корень — в центре
+  result.push({ id: rootId, x: CX, y: CY, depth: 0, angle: 0 })
+  placed.add(rootId)
+
+  // Рекурсивное распределение углов
+  function place(id: string, aStart: number, aEnd: number, depth: number) {
+    const children = (childrenOf[id] || []).filter(c => !placed.has(c))
+    if (children.length === 0) return
+
+    const sizes = children.map(c => subtreeSize(c, childrenOf, new Set(placed)))
+    const total = sizes.reduce((a, b) => a + b, 0)
+    const span  = aEnd - aStart
+
+    // Минимальный угол чтобы узлы не накладывались (зависит от радиуса кольца)
+    const minAngle = Math.max(span / children.length, (2 * (NODE_R + 8)) / (depth * RING_RADIUS))
+
+    let cur = aStart
+    children.forEach((child, i) => {
+      const fraction  = sizes[i] / total
+      const allocated = Math.max(span * fraction, minAngle)
+      const midAngle  = cur + allocated / 2
+      const r = depth * RING_RADIUS
+
+      placed.add(child)
+      result.push({
+        id: child,
+        x: CX + r * Math.cos(midAngle),
+        y: CY + r * Math.sin(midAngle),
+        depth,
+        angle: midAngle,
+      })
+
+      place(child, cur, cur + allocated, depth + 1)
+      cur += allocated
     })
   }
+
+  place(rootId, -Math.PI, Math.PI, 1)
+
+  // Несвязанные персоны — на внешнем кольце
+  const orphans = persons.filter(p => !placed.has(p.id))
+  if (orphans.length > 0) {
+    const maxDepth = Math.max(...result.map(n => n.depth), 1) + 1
+    const r = maxDepth * RING_RADIUS
+    orphans.forEach((p, i) => {
+      const angle = (i / orphans.length) * Math.PI * 2 - Math.PI / 2
+      result.push({ id: p.id, x: CX + r * Math.cos(angle), y: CY + r * Math.sin(angle), depth: maxDepth, angle })
+    })
+  }
+
   return result
 }
 
-function findFamilyGroups(persons: Person[], rels: Rel[]): Record<string, number> {
-  const parent: Record<string, string> = {}
-  persons.forEach(p => { parent[p.id] = p.id })
-
-  function find(x: string): string {
-    if (parent[x] !== x) parent[x] = find(parent[x])
-    return parent[x]
-  }
-  function union(a: string, b: string) {
-    const ra = find(a), rb = find(b)
-    if (ra !== rb) parent[ra] = rb
-  }
-  for (const r of rels) union(r.person1_id, r.person2_id)
-
-  const groupMap: Record<string, number> = {}
-  let counter = 0
-  const result: Record<string, number> = {}
-  for (const p of persons) {
-    const root = find(p.id)
-    if (groupMap[root] === undefined) groupMap[root] = counter++
-    result[p.id] = groupMap[root]
-  }
-  return result
-}
-
-function bezier(x1: number, y1: number, x2: number, y2: number) {
-  const midY = (y1 + y2) / 2
-  return `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`
-}
-
+// ─── Главный компонент ─────────────────────────────────────────
 export default function TreePage() {
   const [persons, setPersons] = useState<Person[]>([])
-  const [rels, setRels] = useState<Rel[]>([])
+  const [rels, setRels]       = useState<Rel[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
-  const [tx, setTx] = useState(0)
-  const [ty, setTy] = useState(0)
+  const [tx, setTx]       = useState(0)
+  const [ty, setTy]       = useState(0)
   const [scale, setScale] = useState(1)
-  const dragging = useRef(false)
-  const dragStart = useRef({ x: 0, y: 0 })
-  const svgRef = useRef<SVGSVGElement>(null)
-  const fittedRef = useRef(false)
+  const dragging    = useRef(false)
+  const dragStart   = useRef({ x: 0, y: 0 })
+  const svgRef      = useRef<SVGSVGElement>(null)
+  const fittedRef   = useRef(false)
 
+  // Блокируем браузерный pinch-zoom
+  useEffect(() => {
+    const prevent = (e: WheelEvent) => { if (e.ctrlKey) e.preventDefault() }
+    document.addEventListener('wheel', prevent, { passive: false })
+    return () => document.removeEventListener('wheel', prevent)
+  }, [])
+
+  // Загрузка данных
   useEffect(() => {
     async function load() {
       const supabase = createClient()
@@ -152,9 +184,9 @@ export default function TreePage() {
       if (!user) { router.push('/login'); return }
       const [{ data: p }, { data: r }] = await Promise.all([
         supabase.from('persons')
-          .select('id, first_name, last_name, clan_name, birth_date, death_date, main_photo_url')
+          .select('id,first_name,last_name,clan_name,birth_date,death_date,main_photo_url,is_alive,is_root')
           .eq('created_by', user.id),
-        supabase.from('relationships').select('id, person1_id, person2_id, relation_type'),
+        supabase.from('relationships').select('id,person1_id,person2_id,relation_type'),
       ])
       setPersons((p as Person[]) || [])
       setRels((r as Rel[]) || [])
@@ -163,27 +195,29 @@ export default function TreePage() {
     load()
   }, [router])
 
-  const nodes = buildLayout(persons, rels)
+  const nodes = buildRadialLayout(persons, rels)
+  const nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]))
+  const personMap = Object.fromEntries(persons.map(p => [p.id, p]))
 
-  // ── fitView: вписать все карточки в экран ──────────────────────
+  // ── fitView ────────────────────────────────────────────────────
   const fitView = useCallback(() => {
     if (nodes.length === 0 || !svgRef.current) return
     const rect = svgRef.current.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0) return
-    const minX = Math.min(...nodes.map(n => n.x))
-    const maxX = Math.max(...nodes.map(n => n.x + NODE_W))
-    const minY = Math.min(...nodes.map(n => n.y))
-    const maxY = Math.max(...nodes.map(n => n.y + NODE_H))
-    const treeW = maxX - minX
-    const treeH = maxY - minY
-    const margin = 48
-    const s = Math.min(1, (rect.width - margin * 2) / treeW, (rect.height - margin * 2) / treeH)
+    const xs = nodes.map(n => n.x)
+    const ys = nodes.map(n => n.y)
+    const minX = Math.min(...xs) - NODE_R - 80
+    const maxX = Math.max(...xs) + NODE_R + 80
+    const minY = Math.min(...ys) - NODE_R - 60
+    const maxY = Math.max(...ys) + NODE_R + 60
+    const w = maxX - minX
+    const h = maxY - minY
+    const s = Math.min(0.95, (rect.width - 40) / w, (rect.height - 40) / h)
     setScale(s)
-    setTx((rect.width  - treeW * s) / 2 - minX * s)
-    setTy((rect.height - treeH * s) / 2 - minY * s)
+    setTx((rect.width  - w * s) / 2 - minX * s)
+    setTy((rect.height - h * s) / 2 - minY * s)
   }, [nodes])
 
-  // Автоподгонка при первой загрузке
   useEffect(() => {
     if (nodes.length > 0 && !fittedRef.current) {
       fittedRef.current = true
@@ -191,43 +225,42 @@ export default function TreePage() {
     }
   }, [nodes, fitView])
 
-  // ── Зум колёсиком (вокруг курсора) ────────────────────────────
+  // ── Зум колёсиком ──────────────────────────────────────────────
   const onWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
     e.preventDefault()
-    const factor = e.deltaY < 0 ? 1.12 : 0.9
+    const factor = e.deltaY < 0 ? 1.1 : 0.91
     const rect = svgRef.current?.getBoundingClientRect()
     if (!rect) return
     const mx = e.clientX - rect.left
     const my = e.clientY - rect.top
     setScale(prev => {
-      const next = Math.min(4, Math.max(0.15, prev * factor))
+      const next = Math.min(4, Math.max(0.1, prev * factor))
       setTx(t => mx - (mx - t) * (next / prev))
       setTy(t => my - (my - t) * (next / prev))
       return next
     })
   }, [])
 
-  // ── Зум кнопками — масштаб + центрирование, контент не уходит ─
+  // ── Зум кнопками (центрирование) ───────────────────────────────
   const zoomBtn = useCallback((factor: number) => {
     if (!svgRef.current || nodes.length === 0) return
     const rect = svgRef.current.getBoundingClientRect()
-    if (rect.width === 0 || rect.height === 0) return
-    const minX = Math.min(...nodes.map(n => n.x))
-    const maxX = Math.max(...nodes.map(n => n.x + NODE_W))
-    const minY = Math.min(...nodes.map(n => n.y))
-    const maxY = Math.max(...nodes.map(n => n.y + NODE_H))
-    const treeW = maxX - minX
-    const treeH = maxY - minY
+    if (!rect.width) return
+    const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y)
+    const minX = Math.min(...xs) - NODE_R - 80
+    const maxX = Math.max(...xs) + NODE_R + 80
+    const minY = Math.min(...ys) - NODE_R - 60
+    const maxY = Math.max(...ys) + NODE_R + 60
+    const w = maxX - minX, h = maxY - minY
     setScale(prev => {
-      const next = Math.min(3, Math.max(0.1, prev * factor))
-      // всегда центрируем при нажатии кнопок — контент не убегает
-      setTx((rect.width  - treeW * next) / 2 - minX * next)
-      setTy((rect.height - treeH * next) / 2 - minY * next)
+      const next = Math.min(4, Math.max(0.1, prev * factor))
+      setTx((rect.width  - w * next) / 2 - minX * next)
+      setTy((rect.height - h * next) / 2 - minY * next)
       return next
     })
   }, [nodes])
 
-  // ── Перемещение мышью ──────────────────────────────────────────
+  // ── Перетаскивание ─────────────────────────────────────────────
   const onMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if ((e.target as Element).closest('[data-node]')) return
     dragging.current = true
@@ -242,89 +275,115 @@ export default function TreePage() {
 
   const onMouseUp = useCallback(() => { dragging.current = false }, [])
 
-  // ── Вычисления ─────────────────────────────────────────────────
-  const nodeIndex: Record<string, NodeData> = {}
-  nodes.forEach(n => { nodeIndex[n.id] = n })
-  const familyGroups = findFamilyGroups(persons, rels)
-  const uniqueGroups = [...new Set(Object.values(familyGroups))].sort()
-
-  const groupClanName: Record<number, string> = {}
-  for (const p of persons) {
-    const g = familyGroups[p.id]
-    if (p.clan_name && !groupClanName[g]) groupClanName[g] = p.clan_name
-  }
-
-  type Edge = { d: string; dashed: boolean }
+  // ── Рёбра ──────────────────────────────────────────────────────
+  type Edge = { d: string; dashed: boolean; color: string }
   const edges: Edge[] = []
+
   for (const r of rels) {
-    const a = nodeIndex[r.person1_id]
-    const b = nodeIndex[r.person2_id]
+    const a = nodeMap[r.person1_id]
+    const b = nodeMap[r.person2_id]
     if (!a || !b) continue
-    if (r.relation_type === 'parent') {
-      edges.push({ d: bezier(a.x + NODE_W / 2, a.y + NODE_H, b.x + NODE_W / 2, b.y), dashed: false })
-    } else if (r.relation_type === 'child') {
-      edges.push({ d: bezier(b.x + NODE_W / 2, b.y + NODE_H, a.x + NODE_W / 2, a.y), dashed: false })
-    } else if (r.relation_type === 'spouse') {
-      const left = a.x < b.x ? a : b
-      const right = a.x < b.x ? b : a
-      edges.push({ d: `M ${left.x + NODE_W} ${left.y + NODE_H / 2} L ${right.x} ${right.y + NODE_H / 2}`, dashed: true })
+
+    if (r.relation_type === 'spouse' || r.relation_type === 'sibling') {
+      // Дуга между узлами одного уровня — пунктир
+      const mx = (a.x + b.x) / 2
+      const my = (a.y + b.y) / 2
+      // Контрольная точка смещается к центру (для изгиба дуги)
+      const dx = mx - CX, dy = my - CY
+      const len = Math.sqrt(dx * dx + dy * dy) || 1
+      const ctrlX = mx - dx / len * 40
+      const ctrlY = my - dy / len * 40
+      edges.push({
+        d: `M ${a.x} ${a.y} Q ${ctrlX} ${ctrlY} ${b.x} ${b.y}`,
+        dashed: true,
+        color: r.relation_type === 'spouse' ? '#d97706' : '#a8a29e',
+      })
+      continue
     }
+
+    // parent/child — находим кто родитель
+    let parent = a, child = b
+    if (r.relation_type === 'child') { parent = b; child = a }
+
+    // Кривая от родителя к ребёнку — через промежуточную точку
+    const midR = (parent.depth * RING_RADIUS + child.depth * RING_RADIUS) / 2
+    const midAngle = (parent.angle + child.angle) / 2
+    // Если углы далеко друг от друга — используем прямую контрольную
+    const angleDiff = Math.abs(parent.angle - child.angle)
+    const ctrlX = angleDiff > Math.PI / 2
+      ? (parent.x + child.x) / 2
+      : CX + midR * Math.cos(midAngle)
+    const ctrlY = angleDiff > Math.PI / 2
+      ? (parent.y + child.y) / 2
+      : CY + midR * Math.sin(midAngle)
+
+    edges.push({
+      d: `M ${parent.x} ${parent.y} Q ${ctrlX} ${ctrlY} ${child.x} ${child.y}`,
+      dashed: false,
+      color: '#c8c4be',
+    })
   }
+
+  // ── Статистика ─────────────────────────────────────────────────
+  const aliveCount    = persons.filter(p => p.is_alive).length
+  const deceasedCount = persons.length - aliveCount
+  const rootPerson    = persons.find(p => p.is_root)
 
   return (
     <div className="h-screen bg-stone-50 flex flex-col select-none overflow-hidden">
 
       {/* ── Шапка ──────────────────────────────────────────────── */}
       <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 bg-white border-b border-stone-200 overflow-hidden">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 overflow-hidden">
           <Link href="/dashboard" className="text-stone-400 text-sm hover:text-stone-600 transition-colors flex-shrink-0">
             ← Дашборд
           </Link>
           <span className="text-stone-200 flex-shrink-0">·</span>
-          <h1 className="text-sm font-medium text-stone-800 flex-shrink-0">Семейное дерево</h1>
+          <h1 className="text-sm font-medium text-stone-800 flex-shrink-0">Генеалогическое дерево</h1>
+
           {persons.length > 0 && (
-            <span className="text-xs text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full flex-shrink-0">
-              {persons.length} {persons.length === 1 ? 'профиль' : persons.length < 5 ? 'профиля' : 'профилей'}
-            </span>
-          )}
-          {/* Цветные точки семейных групп — без текста чтобы не переполнять шапку */}
-          {uniqueGroups.length > 1 && (
-            <div className="hidden sm:flex items-center gap-1.5 flex-shrink-0">
-              {uniqueGroups.slice(0, 8).map(g => (
-                <span
-                  key={g}
-                  title={groupClanName[g] || `Семья ${g + 1}`}
-                  className="inline-block w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ background: FAMILY_COLORS[g % FAMILY_COLORS.length] }}
-                />
-              ))}
+            <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                {aliveCount}
+              </span>
+              <span className="inline-flex items-center gap-1 text-xs text-stone-500 bg-stone-100 px-2 py-0.5 rounded-full border border-stone-200">
+                † {deceasedCount}
+              </span>
+              {rootPerson && (
+                <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 flex-shrink-0 max-w-[120px] truncate">
+                  ★ {[rootPerson.last_name, rootPerson.first_name].filter(Boolean).join(' ') || 'Основатель'}
+                </span>
+              )}
             </div>
           )}
         </div>
-        <Link
-          href="/dashboard/persons"
-          className="text-xs text-stone-500 hover:text-stone-800 transition-colors border border-stone-200 rounded-lg px-3 py-1.5 flex-shrink-0 ml-3"
-        >
-          Управление профилями
-        </Link>
+
+        <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+          <Link
+            href="/dashboard/persons"
+            className="text-xs text-stone-500 hover:text-stone-800 transition-colors border border-stone-200 rounded-lg px-3 py-1.5"
+          >
+            Участники
+          </Link>
+        </div>
       </div>
 
-      {/* ── Контент ────────────────────────────────────────────── */}
+      {/* ── Содержимое ─────────────────────────────────────────── */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-stone-400 text-sm">Загрузка…</div>
       ) : persons.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-4">
           <div className="text-5xl">🌳</div>
           <p className="text-stone-500 font-light text-lg">Дерево пусто</p>
-          <p className="text-stone-400 text-sm">Добавьте профили предков чтобы построить семейное дерево</p>
+          <p className="text-stone-400 text-sm">Добавьте участников и свяжите их между собой</p>
           <Link href="/dashboard/persons/new"
             className="mt-2 px-5 py-2.5 bg-stone-800 text-white text-sm rounded-lg hover:bg-stone-700 transition-colors">
-            Добавить профиль
+            Добавить участника
           </Link>
         </div>
       ) : (
         <div className="flex-1 overflow-hidden relative">
-
           <svg
             ref={svgRef}
             width="100%"
@@ -337,107 +396,150 @@ export default function TreePage() {
             onMouseLeave={onMouseUp}
           >
             <defs>
-              <filter id="card-shadow" x="-20%" y="-20%" width="140%" height="140%">
-                <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#00000018" />
+              <filter id="node-shadow" x="-30%" y="-30%" width="160%" height="160%">
+                <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#00000020" />
+              </filter>
+              <filter id="root-glow" x="-40%" y="-40%" width="180%" height="180%">
+                <feDropShadow dx="0" dy="0" stdDeviation="8" floodColor="#534AB740" />
               </filter>
             </defs>
 
-            <g transform={`translate(${tx}, ${ty}) scale(${scale})`}>
+            <g transform={`translate(${tx},${ty}) scale(${scale})`}>
+
+              {/* Концентрические кольца поколений (декор) */}
+              {nodes.length > 0 && (() => {
+                const maxDepth = Math.max(...nodes.map(n => n.depth), 0)
+                return Array.from({ length: maxDepth }, (_, i) => (
+                  <circle
+                    key={i}
+                    cx={CX} cy={CY}
+                    r={(i + 1) * RING_RADIUS}
+                    fill="none"
+                    stroke="#e7e5e4"
+                    strokeWidth={1}
+                    strokeDasharray="4 6"
+                  />
+                ))
+              })()}
+
               {/* Рёбра */}
               {edges.map((e, i) => (
-                <path key={i} d={e.d} fill="none" stroke="#c8c4be" strokeWidth={1.5}
-                  strokeDasharray={e.dashed ? '6 4' : undefined} />
+                <path key={i} d={e.d} fill="none"
+                  stroke={e.color} strokeWidth={1.5}
+                  strokeDasharray={e.dashed ? '5 4' : undefined}
+                  strokeOpacity={0.7}
+                />
               ))}
 
-              {/* Карточки */}
+              {/* Узлы */}
               {nodes.map(node => {
+                const person = personMap[node.id]
+                if (!person) return null
+
                 const { x, y } = node
-                const lastName  = node.last_name  || ''
-                const firstName = node.first_name || ''
-                const birth = node.birth_date ? new Date(node.birth_date).getFullYear() : null
-                const death = node.death_date ? new Date(node.death_date).getFullYear() : null
-                const years = (birth || death) ? `${birth ?? '?'} – ${death ?? '…'}` : ''
-                const groupIdx = familyGroups[node.id] ?? 0
-                const color = FAMILY_COLORS[groupIdx % FAMILY_COLORS.length]
-                const avatarCx = x + NODE_W / 2
-                const avatarCy = y + 54
+                const isRoot  = person.is_root
+                const isAlive = person.is_alive
+                const lastName  = person.last_name  || ''
+                const firstName = person.first_name || ''
+                const shortLast  = lastName.length  > 13 ? lastName.slice(0, 12)  + '…' : lastName
+                const shortFirst = firstName.length > 13 ? firstName.slice(0, 12) + '…' : firstName
+                const birth = person.birth_date ? new Date(person.birth_date).getFullYear() : null
+                const death = person.death_date ? new Date(person.death_date).getFullYear() : null
+
+                const yearLabel = isAlive
+                  ? (birth ? `р. ${birth}` : '')
+                  : birth || death
+                    ? `${birth ?? '?'} – ${death ?? '…'}`
+                    : ''
+
+                const ringColor = isRoot ? COLOR_ROOT : isAlive ? COLOR_ALIVE : COLOR_DECEASED
+                const bgColor   = isRoot ? COLOR_ROOT_BG : isAlive ? COLOR_ALIVE_BG : COLOR_DEC_BG
+
+                const textY = y + NODE_R + 18
 
                 return (
                   <g key={node.id} data-node="true"
                     onClick={() => router.push(`/dashboard/persons/${node.id}`)}
                     style={{ cursor: 'pointer' }}>
 
-                    {/* Белый фон карточки */}
-                    <rect x={x} y={y} width={NODE_W} height={NODE_H} rx={12}
-                      fill="white" stroke="#e7e5e4" strokeWidth={1} filter="url(#card-shadow)" />
-
-                    {/* Цветная полоска — path с закруглёнными верхними углами */}
-                    <path
-                      d={`M ${x} ${y+12} A 12 12 0 0 1 ${x+12} ${y} L ${x+NODE_W-12} ${y} A 12 12 0 0 1 ${x+NODE_W} ${y+12} L ${x+NODE_W} ${y+8} L ${x} ${y+8} Z`}
-                      fill={color}
+                    {/* Внешнее кольцо (цвет статуса) */}
+                    <circle cx={x} cy={y} r={NODE_R + 4}
+                      fill={bgColor}
+                      stroke={ringColor}
+                      strokeWidth={isRoot ? 3 : 2}
+                      filter={isRoot ? 'url(#root-glow)' : 'url(#node-shadow)'}
                     />
 
-                    {/* Аватар: фон-круг */}
-                    <circle cx={avatarCx} cy={avatarCy} r={34} fill="#e7e5e4" />
+                    {/* Аватар фон */}
+                    <circle cx={x} cy={y} r={NODE_R} fill={bgColor} />
 
-                    {node.main_photo_url ? (
+                    {/* Фото или силуэт */}
+                    {person.main_photo_url ? (
                       <>
-                        {/* clipPath определён здесь — внутри той же группы трансформации */}
                         <defs>
                           <clipPath id={`cp-${node.id}`}>
-                            <circle cx={avatarCx} cy={avatarCy} r={33} />
+                            <circle cx={x} cy={y} r={NODE_R - 1} />
                           </clipPath>
                         </defs>
                         <image
-                          href={node.main_photo_url}
-                          x={avatarCx - 33}
-                          y={avatarCy - 33}
-                          width={66}
-                          height={66}
+                          href={person.main_photo_url}
+                          x={x - NODE_R + 1} y={y - NODE_R + 1}
+                          width={(NODE_R - 1) * 2} height={(NODE_R - 1) * 2}
                           clipPath={`url(#cp-${node.id})`}
                           preserveAspectRatio="xMidYMid slice"
                         />
                       </>
                     ) : (
-                      <g>
-                        <circle cx={avatarCx} cy={avatarCy - 10} r={13} fill="#a8a29e" />
-                        <ellipse cx={avatarCx} cy={avatarCy + 17} rx={21} ry={16} fill="#a8a29e" />
+                      <g opacity={0.5}>
+                        <circle cx={x} cy={y - 12} r={14} fill={ringColor} />
+                        <ellipse cx={x} cy={y + 20} rx={22} ry={18} fill={ringColor} />
                       </g>
                     )}
 
-                    {/* Фамилия */}
-                    <text x={x + NODE_W / 2} y={y + 106} textAnchor="middle" fontSize={11} fontWeight="600"
-                      fill="#292524" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-                      {lastName.length > 14 ? lastName.slice(0, 13) + '…' : lastName}
-                    </text>
+                    {/* Звезда основоположника */}
+                    {isRoot && (
+                      <circle cx={x + NODE_R - 2} cy={y - NODE_R + 2} r={10} fill={COLOR_ROOT}>
+                        <title>Основоположник рода</title>
+                      </circle>
+                    )}
+                    {isRoot && (
+                      <text x={x + NODE_R - 2} y={y - NODE_R + 6} textAnchor="middle" fontSize={11}
+                        fill="white" fontFamily="sans-serif">★</text>
+                    )}
+
+                    {/* Зелёная точка — живой */}
+                    {!isRoot && isAlive && (
+                      <circle cx={x + NODE_R - 2} cy={y - NODE_R + 2} r={8} fill="#10b981" stroke="white" strokeWidth={2} />
+                    )}
 
                     {/* Имя */}
-                    <text x={x + NODE_W / 2} y={y + 120} textAnchor="middle" fontSize={10}
-                      fill="#44403c" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-                      {firstName.length > 14 ? firstName.slice(0, 13) + '…' : firstName}
+                    <text x={x} y={textY} textAnchor="middle"
+                      fontSize={12} fontWeight="600"
+                      fill="#292524"
+                      fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+                      {shortLast}
+                    </text>
+                    <text x={x} y={textY + 14} textAnchor="middle"
+                      fontSize={11} fill="#78716c"
+                      fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+                      {shortFirst}
                     </text>
 
                     {/* Годы */}
-                    {years && (
-                      <text x={x + NODE_W / 2} y={y + 136} textAnchor="middle" fontSize={10}
-                        fill="#a8a29e" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-                        {years}
+                    {yearLabel && (
+                      <text x={x} y={textY + 28} textAnchor="middle"
+                        fontSize={10} fill="#a8a29e"
+                        fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+                        {yearLabel}
                       </text>
                     )}
-
-                    {/* Кнопка */}
-                    <rect x={x + 10} y={y + NODE_H - 28} width={NODE_W - 20} height={18} rx={6} fill="#f5f5f4" />
-                    <text x={x + NODE_W / 2} y={y + NODE_H - 15} textAnchor="middle" fontSize={9}
-                      fill="#a8a29e" fontFamily="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-                      Открыть профиль →
-                    </text>
                   </g>
                 )
               })}
             </g>
           </svg>
 
-          {/* Кнопки зума — после SVG в DOM чтобы рендерились поверх него */}
+          {/* Кнопки зума — после SVG, поверх него */}
           <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 pointer-events-auto">
             <button onClick={() => zoomBtn(1.25)}
               className="w-8 h-8 bg-white border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-50 text-lg font-light shadow-sm flex items-center justify-center">
@@ -452,6 +554,29 @@ export default function TreePage() {
               ↺
             </button>
           </div>
+
+          {/* Легенда */}
+          <div className="absolute bottom-3 left-3 z-10 bg-white border border-stone-200 rounded-xl px-3 py-2 shadow-sm flex items-center gap-4 text-xs text-stone-500">
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full bg-violet-600 inline-block"></span>
+              Основоположник
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full bg-emerald-600 inline-block"></span>
+              Живёт
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full bg-stone-400 inline-block"></span>
+              Ушёл
+            </span>
+          </div>
+
+          {/* Подсказка: нет корня */}
+          {!persons.find(p => p.is_root) && persons.length > 0 && (
+            <div className="absolute top-3 left-3 z-10 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 shadow-sm text-xs text-amber-700 max-w-xs">
+              ★ Откройте профиль основателя рода и нажмите «Сделать основателем» — дерево перестроится от него
+            </div>
+          )}
         </div>
       )}
     </div>

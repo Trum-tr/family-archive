@@ -11,7 +11,7 @@ export async function generateMetadata({ params }: Props) {
   const supabase = await createClient()
   const { data } = await supabase
     .from('persons')
-    .select('first_name, last_name, middle_name, birth_date, death_date')
+    .select('first_name, last_name, middle_name, birth_date, death_date, is_alive')
     .eq('id', id)
     .single()
 
@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: Props) {
 
   const name = [data.last_name, data.first_name, data.middle_name].filter(Boolean).join(' ')
   return {
-    title: name || 'Цифровой архив',
+    title: name || 'Семейный архив',
     description: `Профиль — ${name}`,
   }
 }
@@ -36,6 +36,28 @@ export default async function PublicProfilePage({ params }: Props) {
 
   if (!person) notFound()
 
+  // Приватные профили — только для авторизованных
+  if (person.profile_visibility === 'private') {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return (
+        <div className="min-h-screen bg-stone-50 flex items-center justify-center px-4">
+          <div className="text-center max-w-sm">
+            <div className="text-5xl mb-4">🔒</div>
+            <h1 className="text-xl font-light text-stone-700 mb-2">Профиль закрыт</h1>
+            <p className="text-stone-400 text-sm mb-6">Этот профиль доступен только авторизованным пользователям</p>
+            <Link
+              href="/login"
+              className="inline-block px-6 py-2.5 bg-stone-800 text-white text-sm rounded-lg hover:bg-stone-700 transition-colors"
+            >
+              Войти
+            </Link>
+          </div>
+        </div>
+      )
+    }
+  }
+
   const { data: mediaItems } = await supabase
     .from('media_items')
     .select('*')
@@ -48,29 +70,26 @@ export default async function PublicProfilePage({ params }: Props) {
     .eq('person_id', id)
     .order('created_at', { ascending: true })
 
-  // Связи с другими профилями
   const { data: relationships } = await supabase
     .from('relationships')
     .select('*')
     .or(`person1_id.eq.${id},person2_id.eq.${id}`)
 
-  // ID всех связанных людей
   const relatedIds = (relationships ?? []).map(r =>
     r.person1_id === id ? r.person2_id : r.person1_id
   )
 
-  // Загрузить профили связанных
   const { data: relatedPersons } = relatedIds.length > 0
     ? await supabase
         .from('persons')
-        .select('id, first_name, last_name, middle_name, birth_date, death_date, main_photo_url')
+        .select('id, first_name, last_name, middle_name, birth_date, death_date, main_photo_url, is_alive')
         .in('id', relatedIds)
     : { data: [] }
 
   const fullName = [person.last_name, person.first_name, person.middle_name].filter(Boolean).join(' ') || 'Неизвестный'
-
   const birthYear = person.birth_date ? new Date(person.birth_date).getFullYear() : null
   const deathYear = person.death_date ? new Date(person.death_date).getFullYear() : null
+  const isAlive = person.is_alive ?? !person.death_date
 
   function formatDate(iso: string | null) {
     if (!iso) return null
@@ -82,34 +101,45 @@ export default async function PublicProfilePage({ params }: Props) {
       {/* Герой */}
       <div className="bg-white border-b border-stone-200">
         <div className="max-w-xl mx-auto px-4 py-10 text-center">
-          {/* Фото */}
-          <div className="w-32 h-32 rounded-full bg-stone-100 mx-auto mb-5 overflow-hidden shadow-sm">
+          <div className={`w-32 h-32 rounded-full bg-stone-100 mx-auto mb-5 overflow-hidden shadow-sm ${isAlive ? 'ring-4 ring-emerald-100' : ''}`}>
             {person.main_photo_url ? (
-              <img
-                src={person.main_photo_url}
-                alt={fullName}
-                className="w-full h-full object-cover"
-              />
+              <img src={person.main_photo_url} alt={fullName} className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-stone-300 text-5xl">👤</div>
             )}
           </div>
 
-          {/* Имя */}
           <h1 className="text-2xl font-light text-stone-800 mb-2">{fullName}</h1>
 
-          {/* Годы жизни */}
-          {(birthYear || deathYear) && (
-            <p className="text-stone-400 text-lg font-light tracking-wide">
-              {birthYear ?? '?'} — {deathYear ?? '...'}
-            </p>
+          {isAlive ? (
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              {birthYear && <p className="text-stone-400 text-base font-light">р. {birthYear}</p>}
+              <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                Живёт
+              </span>
+            </div>
+          ) : (
+            (birthYear || deathYear) && (
+              <p className="text-stone-400 text-lg font-light tracking-wide">
+                {birthYear ?? '?'} — {deathYear ?? '...'}
+              </p>
+            )
+          )}
+
+          {isAlive && person.current_city && (
+            <p className="text-stone-400 text-sm mt-1">📍 {person.current_city}</p>
+          )}
+
+          {person.clan_name && (
+            <p className="text-stone-400 text-sm mt-2">Род: {person.clan_name}</p>
           )}
         </div>
       </div>
 
       <div className="max-w-xl mx-auto px-4 py-8 space-y-5">
-        {/* Даты */}
-        {(person.birth_date || person.death_date) && (
+        {/* Даты — только для умерших */}
+        {!isAlive && (person.birth_date || person.death_date) && (
           <div className="bg-white rounded-xl border border-stone-200 p-5">
             <p className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3">Даты</p>
             <div className="space-y-2">
@@ -129,6 +159,17 @@ export default async function PublicProfilePage({ params }: Props) {
           </div>
         )}
 
+        {/* Дата рождения для живых */}
+        {isAlive && person.birth_date && person.profile_visibility !== 'private' && (
+          <div className="bg-white rounded-xl border border-stone-200 p-5">
+            <p className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3">Дата рождения</p>
+            <div className="flex items-center gap-2 text-sm text-stone-700">
+              <span className="text-stone-400">🎂</span>
+              <span>{formatDate(person.birth_date)}</span>
+            </div>
+          </div>
+        )}
+
         {/* Биография */}
         {person.biography && (
           <div className="bg-white rounded-xl border border-stone-200 p-5">
@@ -137,8 +178,8 @@ export default async function PublicProfilePage({ params }: Props) {
           </div>
         )}
 
-        {/* Место захоронения */}
-        {(person.burial_place || person.burial_lat) && (
+        {/* Место захоронения — только для умерших */}
+        {!isAlive && (person.burial_place || person.burial_lat) && (
           <div className="bg-white rounded-xl border border-stone-200 p-5">
             <p className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3">Место захоронения</p>
             {person.burial_place && (
@@ -166,12 +207,13 @@ export default async function PublicProfilePage({ params }: Props) {
                 const otherId = r.person1_id === id ? r.person2_id : r.person1_id
                 const rel = (relatedPersons ?? []).find((p: { id: string }) => p.id === otherId) as {
                   id: string; first_name: string | null; last_name: string | null; middle_name: string | null;
-                  birth_date: string | null; death_date: string | null; main_photo_url: string | null
+                  birth_date: string | null; death_date: string | null; main_photo_url: string | null; is_alive: boolean
                 } | undefined
                 if (!rel) return null
                 const relName = [rel.last_name, rel.first_name, rel.middle_name].filter(Boolean).join(' ') || 'Без имени'
                 const relBirth = rel.birth_date ? new Date(rel.birth_date).getFullYear() : null
                 const relDeath = rel.death_date ? new Date(rel.death_date).getFullYear() : null
+                const relAlive = rel.is_alive ?? !rel.death_date
                 const REL_LABELS: Record<string, string> = {
                   parent: 'Родитель', child: 'Ребёнок', spouse: 'Супруг(а)',
                   sibling: 'Брат/Сестра', adopted: 'Усыновлён'
@@ -182,7 +224,7 @@ export default async function PublicProfilePage({ params }: Props) {
                     href={`/p/${otherId}`}
                     className="flex items-center gap-3 hover:bg-stone-50 rounded-lg p-2 -mx-2 transition-colors"
                   >
-                    <div className="w-10 h-10 rounded-full bg-stone-100 flex-shrink-0 overflow-hidden">
+                    <div className={`w-10 h-10 rounded-full bg-stone-100 flex-shrink-0 overflow-hidden ${relAlive ? 'ring-2 ring-emerald-200' : ''}`}>
                       {rel.main_photo_url ? (
                         <img src={rel.main_photo_url} alt={relName} className="w-full h-full object-cover" />
                       ) : (
@@ -193,7 +235,9 @@ export default async function PublicProfilePage({ params }: Props) {
                       <p className="text-sm font-medium text-stone-800 truncate">{relName}</p>
                       <p className="text-xs text-stone-400">
                         {REL_LABELS[r.relation_type] ?? r.relation_type}
-                        {(relBirth || relDeath) && ` · ${relBirth ?? '?'} – ${relDeath ?? '...'}`}
+                        {relAlive
+                          ? relBirth ? ` · р. ${relBirth}` : ''
+                          : (relBirth || relDeath) ? ` · ${relBirth ?? '?'} – ${relDeath ?? '...'}` : ''}
                       </p>
                     </div>
                     <span className="text-stone-300">›</span>
@@ -211,11 +255,7 @@ export default async function PublicProfilePage({ params }: Props) {
             <div className="grid grid-cols-3 gap-2">
               {galleryPhotos.map((photo: { id: string; url: string; caption: string | null }) => (
                 <div key={photo.id} className="aspect-square rounded-lg overflow-hidden bg-stone-100">
-                  <img
-                    src={photo.url}
-                    alt={photo.caption || ''}
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={photo.url} alt={photo.caption || ''} className="w-full h-full object-cover" />
                 </div>
               ))}
             </div>
@@ -268,9 +308,9 @@ export default async function PublicProfilePage({ params }: Props) {
         <div className="text-center pt-4 pb-2">
           <div className="w-8 h-px bg-stone-300 mx-auto mb-4" />
           <p className="text-xs text-stone-400">
-            Цифровой семейный архив ·{' '}
+            Генеалогия рода ·{' '}
             <Link href="/" className="hover:text-stone-600 transition-colors">
-              Создать свой
+              Создать своё дерево
             </Link>
           </p>
         </div>
