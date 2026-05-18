@@ -159,6 +159,7 @@ export default function TreePage() {
   const [persons, setPersons] = useState<Person[]>([])
   const [rels, setRels]       = useState<Rel[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const router = useRouter()
 
   const [tx, setTx]       = useState(0)
@@ -459,7 +460,7 @@ export default function TreePage() {
 
                 return (
                   <g key={node.id} data-node="true"
-                    onClick={() => router.push(`/dashboard/persons/${node.id}`)}
+                    onClick={() => setSelectedId(node.id)}
                     style={{ cursor: 'pointer' }}>
 
                     {/* Внешнее кольцо (цвет статуса) */}
@@ -577,6 +578,102 @@ export default function TreePage() {
               ★ Откройте профиль основателя рода и нажмите «Сделать основателем» — дерево перестроится от него
             </div>
           )}
+
+          {/* ── Боковая панель профиля ────────────────────────── */}
+          {selectedId && (() => {
+            const sel = personMap[selectedId]
+            if (!sel) return null
+            const selName = [sel.last_name, sel.first_name].filter(Boolean).join(' ') || 'Без имени'
+            const selBirth = sel.birth_date ? new Date(sel.birth_date).getFullYear() : null
+            const selDeath = sel.death_date ? new Date(sel.death_date).getFullYear() : null
+            const selAlive = sel.is_alive
+
+            // Find relatives of selected
+            const relatedRels = rels.filter(r => r.person1_id === selectedId || r.person2_id === selectedId)
+            const REL_LABELS: Record<string, string> = { parent: 'Родитель', child: 'Ребёнок', spouse: 'Супруг(а)', sibling: 'Брат/Сестра', adopted: 'Усыновлён' }
+
+            return (
+              <div className="absolute top-0 right-0 bottom-0 w-72 bg-white border-l border-stone-200 shadow-xl z-20 flex flex-col overflow-hidden"
+                style={{ animation: 'slideIn 0.2s ease' }}>
+                <style>{`@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }`}</style>
+
+                {/* Header */}
+                <div className={`p-4 border-b border-stone-100 ${selAlive ? 'bg-emerald-50' : sel.is_root ? 'bg-violet-50' : 'bg-stone-50'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-12 h-12 rounded-full bg-stone-100 overflow-hidden flex-shrink-0 ${selAlive ? 'ring-2 ring-emerald-300' : sel.is_root ? 'ring-2 ring-violet-400' : ''}`}>
+                        {sel.main_photo_url
+                          ? <img src={sel.main_photo_url} alt={selName} className="w-full h-full object-cover" />
+                          : <div className="w-full h-full flex items-center justify-center text-stone-300 text-2xl">👤</div>
+                        }
+                      </div>
+                      <div>
+                        <p className="font-medium text-stone-800 text-sm leading-tight">{selName}</p>
+                        {sel.clan_name && <p className="text-xs text-stone-400 mt-0.5">Род: {sel.clan_name}</p>}
+                        <p className="text-xs mt-1">
+                          {selAlive ? (
+                            <span className="inline-flex items-center gap-1 text-emerald-700">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                              Живёт{selBirth ? ` · р. ${selBirth}` : ''}
+                            </span>
+                          ) : (
+                            <span className="text-stone-400">
+                              {selBirth ?? '?'} — {selDeath ?? '…'}
+                              {sel.is_root && ' · ★ Основоположник'}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={() => setSelectedId(null)}
+                      className="text-stone-300 hover:text-stone-600 text-xl leading-none flex-shrink-0 mt-0.5">×</button>
+                  </div>
+                </div>
+
+                {/* Relatives */}
+                {relatedRels.length > 0 && (
+                  <div className="p-4 border-b border-stone-100 overflow-y-auto flex-1">
+                    <p className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3">Родственники</p>
+                    <div className="space-y-2">
+                      {relatedRels.map(r => {
+                        const otherId = r.person1_id === selectedId ? r.person2_id : r.person1_id
+                        const other = personMap[otherId]
+                        if (!other) return null
+                        const otherName = [other.last_name, other.first_name].filter(Boolean).join(' ') || 'Без имени'
+                        return (
+                          <button key={r.id} onClick={() => setSelectedId(otherId)}
+                            className="w-full flex items-center gap-2.5 text-left hover:bg-stone-50 rounded-lg p-1.5 -mx-1.5 transition-colors">
+                            <div className={`w-7 h-7 rounded-full bg-stone-100 overflow-hidden flex-shrink-0 ${other.is_alive ? 'ring-1 ring-emerald-200' : ''}`}>
+                              {other.main_photo_url
+                                ? <img src={other.main_photo_url} alt={otherName} className="w-full h-full object-cover" />
+                                : <div className="w-full h-full flex items-center justify-center text-stone-300 text-xs">👤</div>
+                              }
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-stone-700 truncate">{otherName}</p>
+                              <p className="text-xs text-stone-400">{REL_LABELS[r.relation_type] ?? r.relation_type}</p>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="p-4 border-t border-stone-100 flex flex-col gap-2">
+                  <Link href={`/dashboard/persons/${selectedId}`}
+                    className="block w-full text-center py-2 bg-stone-800 text-white text-xs rounded-lg hover:bg-stone-700 transition-colors">
+                    Открыть полный профиль →
+                  </Link>
+                  <Link href={`/p/${selectedId}`} target="_blank"
+                    className="block w-full text-center py-2 border border-stone-200 text-stone-600 text-xs rounded-lg hover:bg-stone-50 transition-colors">
+                    Публичная страница ↗
+                  </Link>
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>

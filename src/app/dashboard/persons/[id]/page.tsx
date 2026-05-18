@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
+import LifeEventsSection from './LifeEventsSection'
 import { createClient } from '@/lib/supabase/client'
 import { uploadPhoto } from '@/lib/supabase/storage'
 import QRCode from '@/components/QRCode'
@@ -851,6 +852,9 @@ export default function PersonDetailPage() {
             </p>
           )}
         </div>
+
+        {/* Хронологическая лента */}
+        {!editing && <LifeEventsSection personId={id} />}
 
         {/* Место захоронения — только для умерших */}
         {(!editing && !person.is_alive) && (

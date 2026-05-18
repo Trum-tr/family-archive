@@ -1,57 +1,24 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  })
+const COOKIE_NAME = 'site_auth'
+const COOKIE_VALUE = 'ok_100674'
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          )
-          supabaseResponse = NextResponse.next({
-            request,
-          })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // Защищаем только /dashboard
+  if (pathname.startsWith('/dashboard')) {
+    const auth = request.cookies.get(COOKIE_NAME)
+    if (auth?.value !== COOKIE_VALUE) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      return NextResponse.redirect(url)
     }
-  )
-
-  // Обновляем сессию — важно: не удалять этот вызов!
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  // Защита маршрута /dashboard — редирект на /login если не авторизован
-  if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
   }
 
-  return supabaseResponse
+  return NextResponse.next()
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Применяем ко всем маршрутам кроме:
-     * - _next/static (статические файлы)
-     * - _next/image (оптимизация изображений)
-     * - favicon.ico
-     */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ['/dashboard/:path*'],
 }
