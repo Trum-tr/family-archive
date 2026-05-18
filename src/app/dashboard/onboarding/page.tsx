@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -16,7 +16,8 @@ type Person = {
   linked_user_id: string | null
 }
 
-export default function OnboardingPage() {
+// ── Отдельный компонент, использующий useSearchParams ──────────
+function OnboardingContent() {
   const supabase = createClient()
   const router = useRouter()
   const params = useSearchParams()
@@ -42,7 +43,7 @@ export default function OnboardingPage() {
       .from('persons')
       .select('id, first_name, last_name, middle_name, birth_date, main_photo_url, is_alive, linked_user_id')
       .eq('family_id', familyId)
-      .is('linked_user_id', null)  // only unlinked profiles
+      .is('linked_user_id', null)
 
     if (q.trim()) {
       query.or(
@@ -106,7 +107,6 @@ export default function OnboardingPage() {
           </p>
         </div>
 
-        {/* Search */}
         <div className="relative mb-4">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400">🔍</span>
           <input
@@ -118,7 +118,6 @@ export default function OnboardingPage() {
           />
         </div>
 
-        {/* Person list */}
         <div className="space-y-2 mb-6">
           {loading && (
             <div className="text-center py-8 text-stone-400 text-sm">Поиск…</div>
@@ -168,5 +167,18 @@ export default function OnboardingPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Экспортируемая страница оборачивает в Suspense ─────────────
+export default function OnboardingPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center">
+        <p className="text-stone-400 text-sm">Загрузка…</p>
+      </div>
+    }>
+      <OnboardingContent />
+    </Suspense>
   )
 }
