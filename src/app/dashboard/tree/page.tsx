@@ -183,10 +183,28 @@ export default function TreePage() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
+
+      // Определяем family_id (своё пространство или членство)
+      const { data: mySpace } = await supabase
+        .from('family_spaces').select('id').eq('created_by', user.id).single()
+      let familyId = mySpace?.id ?? null
+      if (!familyId) {
+        const { data: membership } = await supabase
+          .from('family_members').select('family_id').eq('user_id', user.id).limit(1).single()
+        familyId = membership?.family_id ?? null
+      }
+
+      let personsQuery = supabase
+        .from('persons')
+        .select('id,first_name,last_name,clan_name,birth_date,death_date,main_photo_url,is_alive,is_root')
+      if (familyId) {
+        personsQuery = personsQuery.eq('family_id', familyId)
+      } else {
+        personsQuery = personsQuery.eq('created_by', user.id)
+      }
+
       const [{ data: p }, { data: r }] = await Promise.all([
-        supabase.from('persons')
-          .select('id,first_name,last_name,clan_name,birth_date,death_date,main_photo_url,is_alive,is_root')
-          .eq('created_by', user.id),
+        personsQuery,
         supabase.from('relationships').select('id,person1_id,person2_id,relation_type'),
       ])
       setPersons((p as Person[]) || [])
