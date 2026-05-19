@@ -40,22 +40,29 @@ export default function MeEditForm({ person }: { person: Person }) {
     setSaving(true)
     setError(null)
 
-    const { error: err } = await supabase
-      .from('persons')
-      .update({
-        first_name:         form.first_name || null,
-        last_name:          form.last_name  || null,
-        middle_name:        form.middle_name || null,
-        birth_date:         form.birth_date  || null,
-        current_city:       form.current_city || null,
-        biography:          form.biography    || null,
-        profile_visibility: form.profile_visibility,
+    try {
+      const res = await fetch('/api/persons/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id:                 person.id,
+          first_name:         form.first_name || null,
+          last_name:          form.last_name  || null,
+          middle_name:        form.middle_name || null,
+          birth_date:         form.birth_date  || null,
+          current_city:       form.current_city || null,
+          biography:          form.biography    || null,
+          profile_visibility: form.profile_visibility,
+        }),
       })
-      .eq('id', person.id)
-
-    setSaving(false)
-    if (err) setError(err.message)
-    else setSaved(true)
+      const json = await res.json()
+      if (!res.ok) setError(json.error ?? 'Ошибка сохранения')
+      else setSaved(true)
+    } catch {
+      setError('Сетевая ошибка, попробуйте снова')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const inputCls = "w-full px-3 py-2 border border-stone-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-stone-400 text-stone-800"

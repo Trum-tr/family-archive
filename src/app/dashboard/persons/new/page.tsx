@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { uploadPhoto } from '@/lib/supabase/storage'
-import { Suspense } from 'react'
 
 function NewPersonForm() {
   const router = useRouter()
@@ -13,6 +12,7 @@ function NewPersonForm() {
   const familyIdFromUrl = searchParams.get('family')
 
   const [loading, setLoading] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const [familyId, setFamilyId] = useState<string | null>(familyIdFromUrl)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
@@ -64,45 +64,43 @@ function NewPersonForm() {
     e.preventDefault()
     setLoading(true)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-
-      const { data: person, error } = await supabase
-        .from('persons')
-        .insert({
-          first_name: form.first_name || null,
-          last_name: form.last_name || null,
-          middle_name: form.middle_name || null,
-          clan_name: form.clan_name || null,
-          birth_date: form.birth_date || null,
-          death_date: form.death_date || null,
-          biography: form.biography || null,
-          burial_lat: form.burial_lat ? parseFloat(form.burial_lat) : null,
-          burial_lng: form.burial_lng ? parseFloat(form.burial_lng) : null,
-          burial_place: form.burial_place || null,
-          created_by: user.id,
-          family_id: familyId ?? null,
-        })
-        .select()
-        .single()
-
-      if (error || !person) throw error
-
+      // Upload photo first if selected (needs user id — get it client-side)
+      let photoUrl: string | null = null
       if (photoFile) {
-        const url = await uploadPhoto(photoFile, user.id, person.id)
-        if (url) {
-          await supabase
-            .from('persons')
-            .update({ main_photo_url: url })
-            .eq('id', person.id)
-        }
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) { router.push('/login'); return }
+        photoUrl = await uploadPhoto(photoFile, user.id, crypto.randomUUID())
       }
 
-      router.push(`/dashboard/persons/${person.id}`)
-    } catch (err) {
-      console.error(err)
-      alert('Ошибка при сохранении. Проверьте данные и попробуйте снова.')
+      const res = await fetch('/api/persons/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          family_id:    familyId ?? null,
+          first_name:   form.first_name || null,
+          last_name:    form.last_name || null,
+          middle_name:  form.middle_name || null,
+          clan_name:    form.clan_name || null,
+          birth_date:   form.birth_date || null,
+          death_date:   form.death_date || null,
+          biography:    form.biography || null,
+          burial_lat:   form.burial_lat ? parseFloat(form.burial_lat) : null,
+          burial_lng:   form.burial_lng ? parseFloat(form.burial_lng) : null,
+          burial_place: form.burial_place || null,
+          main_photo_url: photoUrl,
+        }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) {
+        setFormError(json.error ?? 'Ошибка при сохранении')
+        return
+      }
+
+      router.push(`/dashboard/persons/${json.person.id}`)
+    } catch {
+      setFormError('Сетевая ошибка, попробуйте снова')
     } finally {
       setLoading(false)
     }
@@ -216,6 +214,12 @@ function NewPersonForm() {
               </div>
             </div>
           </div>
+
+          {formError && (
+            <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+              {formError}
+            </div>
+          )}
 
           {/* Кнопки */}
           <div className="flex gap-3">

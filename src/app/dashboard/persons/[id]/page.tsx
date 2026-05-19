@@ -546,6 +546,7 @@ export default function PersonDetailPage() {
   const [editing, setEditing] = useState(false)
   const [loading, setLoading] = useState(false)
   const [settingRoot, setSettingRoot] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [form, setForm] = useState<{
@@ -594,37 +595,50 @@ export default function PersonDetailPage() {
 
   async function handleSave() {
     setLoading(true)
+    setSaveError(null)
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) { setSaveError('Не авторизован'); return }
 
       let photoUrl = person?.main_photo_url
       if (photoFile) {
         photoUrl = await uploadPhoto(photoFile, user.id, id) || photoUrl
       }
 
-      await supabase.from('persons').update({
-        first_name: form.first_name || null,
-        last_name: form.last_name || null,
-        middle_name: form.middle_name || null,
-        clan_name: form.clan_name || null,
-        birth_date: form.birth_date || null,
-        death_date: form.is_alive ? null : (form.death_date || null),
-        biography: form.biography || null,
-        burial_lat: (!form.is_alive && form.burial_lat) ? parseFloat(form.burial_lat) : null,
-        burial_lng: (!form.is_alive && form.burial_lng) ? parseFloat(form.burial_lng) : null,
-        burial_place: (!form.is_alive && form.burial_place) ? form.burial_place : null,
-        main_photo_url: photoUrl,
-        is_alive: form.is_alive,
-        current_city: form.is_alive ? (form.current_city || null) : null,
-        profile_visibility: form.profile_visibility,
-      }).eq('id', id)
+      const res = await fetch('/api/persons/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          first_name: form.first_name || null,
+          last_name: form.last_name || null,
+          middle_name: form.middle_name || null,
+          clan_name: form.clan_name || null,
+          birth_date: form.birth_date || null,
+          death_date: form.is_alive ? null : (form.death_date || null),
+          biography: form.biography || null,
+          burial_lat: (!form.is_alive && form.burial_lat) ? parseFloat(form.burial_lat) : null,
+          burial_lng: (!form.is_alive && form.burial_lng) ? parseFloat(form.burial_lng) : null,
+          burial_place: (!form.is_alive && form.burial_place) ? form.burial_place : null,
+          main_photo_url: photoUrl,
+          is_alive: form.is_alive,
+          current_city: form.is_alive ? (form.current_city || null) : null,
+          profile_visibility: form.profile_visibility,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setSaveError(json.error ?? 'Ошибка сохранения')
+        return
+      }
 
       await load()
       setEditing(false)
       setPhotoFile(null)
       setPhotoPreview(null)
+    } catch {
+      setSaveError('Сетевая ошибка, попробуйте снова')
     } finally {
       setLoading(false)
     }
@@ -673,6 +687,12 @@ export default function PersonDetailPage() {
             {loading ? 'Сохраняю...' : editing ? 'Сохранить' : 'Редактировать'}
           </button>
         </div>
+
+        {saveError && (
+          <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+            {saveError}
+          </div>
+        )}
 
         {/* Фото + имя */}
         <div className="bg-white rounded-xl border border-stone-200 p-6 mb-4 text-center">
